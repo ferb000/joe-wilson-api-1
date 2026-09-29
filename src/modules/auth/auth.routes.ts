@@ -16,10 +16,18 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  refreshSchema,
 } from './auth.validation';
 
 import { validate } from '../../middleware/validate';
-import { authLimiter } from '../../middleware/rateLimit';
+import {
+  loginLimiter,
+  registerLimiter,
+  refreshLimiter,
+  forgotPasswordLimiter,
+  resetPasswordLimiter,
+} from '../../middleware/rateLimit';
+
 import { authenticate } from '../../middleware/authenticate';
 
 const router = Router();
@@ -51,7 +59,7 @@ const router = Router();
  */
 router.post(
   '/register',
-  authLimiter,
+  registerLimiter,
   validate(registerSchema),
   register
 );
@@ -83,7 +91,7 @@ router.post(
  */
 router.post(
   '/login',
-  authLimiter,
+  loginLimiter,
   validate(loginSchema),
   login
 );
@@ -112,7 +120,7 @@ router.post(
  */
 router.post(
   '/forgot-password',
-  authLimiter,
+  forgotPasswordLimiter,
   validate(forgotPasswordSchema),
   forgotPassword
 );
@@ -144,7 +152,7 @@ router.post(
  */
 router.post(
   '/reset-password',
-  authLimiter,
+  resetPasswordLimiter,
   validate(resetPasswordSchema),
   resetPassword
 );
@@ -209,7 +217,12 @@ router.patch('/me', authenticate, updateMe);
  *       401:
  *         description: Invalid or expired refresh token
  */
-router.post('/refresh', refresh);
+router.post(
+  '/refresh',
+  refreshLimiter,
+  validate(refreshSchema),
+  refresh
+);
 
 /**
  * @openapi

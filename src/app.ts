@@ -17,6 +17,7 @@ import { logger } from './config/logger';
 import { swaggerSpec } from './config/swagger';
 import { emailQueue } from './jobs/email.queue';
 
+import { docsAuth } from './middleware/docsAuth';
 import { errorHandler } from './middleware/errorHandler';
 import { globalLimiter } from './middleware/rateLimit';
 import { httpLogger } from './middleware/logger';
@@ -139,23 +140,25 @@ app.use(httpLogger as unknown as express.RequestHandler);
 // ─────────────────────────────────────────────
 // SWAGGER DOCS
 // ─────────────────────────────────────────────
-if (env.NODE_ENV === 'production' && env.DOCS_TOKEN) {
-  app.use(
-    '/docs',
-    swaggerUi.serveFiles(swaggerSpec,{}),
-(req:Request,res:Response) => {
-  res.send(swaggerUi.generateHTML(swaggerSpec));
-}
-);
+
+if (env.NODE_ENV === 'production') {
+  app.use('/docs', docsAuth);
+  app.use('/docs', swaggerUi.serveFiles(swaggerSpec));
+
+  app.get('/docs', (req: Request, res: Response) => {
+    res.send(swaggerUi.generateHTML(swaggerSpec));
+  });
+
+  app.get('/swagger-json', docsAuth, (_req, res) => {
+    res.json(swaggerSpec);
+  });
 } else {
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+  app.get('/swagger-json', (_req, res) => {
+    res.json(swaggerSpec);
+  });
 }
-
-// Swagger JSON (for debugging)
-app.get('/swagger-json', (_req, res) => {
-  res.json(swaggerSpec);
-});
-
 // ─────────────────────────────────────────────
 // BODY PARSERS
 // ─────────────────────────────────────────────

@@ -1,20 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
-import { env } from '../config/env';
+
 import { logger } from '../config/logger';
 
-export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
-  // Log with structured pino (not console.error) so Railway/Render log viewer can parse it
+export function errorHandler(
+  err: Error,
+  req: Request,
+  res: Response,
+  _next: NextFunction
+) {
   logger.error(
-    { err, method: req.method, path: req.path, ip: req.ip },
+    {
+      err,
+      method: req.method,
+      path: req.path,
+      ip: req.ip,
+      requestId: req.id,
+    },
     'Unhandled error'
   );
 
-  // In production: never leak stack traces or internal error messages
   return res.status(500).json({
     success: false,
-    error: err.message,
-    stack: err.stack,
+    message: 'Internal server error',
+    requestId: req.id,
   });
-
-  return res.status(500).json({ success: false, error: err.message, stack: err.stack });
 }

@@ -1,9 +1,7 @@
-
 import { z } from 'zod';
 
 export const registerSchema = z.object({
   body: z.object({
-    // FIXED: was a single "name" field — service expects firstName + lastName
     firstName: z
       .string()
       .min(1, 'First name is required')
@@ -54,7 +52,9 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z.object({
   body: z.object({
-    token: z.string().min(10, 'Invalid token'),
+    token: z
+      .string()
+      .min(10, 'Invalid token'),
 
     password: z
       .string()
@@ -64,5 +64,13 @@ export const resetPasswordSchema = z.object({
         /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
         'Password must contain uppercase, lowercase and a number'
       ),
+  }),
+});
+
+export const refreshSchema = z.object({
+  body: z.object({
+    refreshToken: z
+      .string()
+      .min(20, 'Invalid refresh token'),
   }),
 });
