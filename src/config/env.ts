@@ -37,7 +37,7 @@ const envSchema = z
       .string()
       .default('http://localhost:3000'),
 
-    DOCS_TOKEN: z.string().optional(),
+
 
     STRIPE_SECRET_KEY: z.string().optional(),
 
