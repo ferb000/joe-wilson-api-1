@@ -1,7 +1,12 @@
+import { createPlaybackGrant } from '../media/transcoding/playback';
+import { resourceResponse } from '../../utils/mediaResponse';
+import { z } from 'zod';
 import { Response } from 'express';
 import { AuthRequest } from '../../middleware/authenticate';
 import { prisma } from '../../config/database';
-import { ok, notFound, badRequest } from '../../utils/response';
+import { getPresignedDownloadUrl } from '../../utils/signedUrl';
+import { env } from '../../config/env';
+import { ok, notFound, badRequest, serverError } from '../../utils/response';
 
 export async function getSession(req: AuthRequest, res: Response) {
   const userId = req.user!.id;
@@ -10,6 +15,7 @@ export async function getSession(req: AuthRequest, res: Response) {
   const session = await prisma.session.findUnique({
     where: { id },
     include: {
+      recording: { include: { transcode: true } },
       resources: { include: { media: true }, orderBy: { orderIndex: 'asc' } },
     },
   });
@@ -32,27 +38,36 @@ export async function getSession(req: AuthRequest, res: Response) {
     where: { userId_sessionId: { userId, sessionId: id } },
   });
 
-  // NOTE: When Mux is configured, generate signed playback token here
-  // const muxToken = session.muxPlaybackId ? await generateMuxToken(session.muxPlaybackId, userId) : null;
+  if (session.videoStorageKey && !env.S3_BUCKET) return serverError(res, 'Media storage is not configured');
+  const recording = session.recording || (session.videoStorageKey ? await prisma.mediaLibrary.findUnique({ where: { storageKey: session.videoStorageKey }, include: { transcode: true } }) : null);
+  const playback = recording?.fileType === 'video'
+    ? await createPlaybackGrant(recording.id, userId, { sessionId: session.id })
+    : { playbackUrl: recording?.fileType === 'audio' && session.videoStorageKey ? await getPresignedDownloadUrl(session.videoStorageKey, 900) : null, playbackUrlExpiresAt: recording?.fileType === 'audio' && session.videoStorageKey ? new Date(Date.now() + 900000).toISOString() : null, playbackType: recording?.fileType === 'audio' ? 'audio' : null, processingStatus: null };
+  const { videoStorageKey: _key, videoMediaId: _mediaId, recording: _recording, ...safeSession } = session;
 
   return ok(res, {
-    ...session,
+    ...safeSession,
+    durationSeconds: recording?.transcode?.durationSeconds ? Math.ceil(recording.transcode.durationSeconds) : session.durationSeconds,
+    resources: await Promise.all(session.resources.map(resource => resourceResponse(resource, userId))),
     progress,
     prevSession,
     nextSession,
-    muxSignedToken: null, // Replace with muxToken when Mux is configured
+    ...playback,
   });
 }
 
 export async function updateProgress(req: AuthRequest, res: Response) {
   const userId = req.user!.id;
   const sessionId = req.params.id;
-  const { lastWatchedSeconds, completed } = req.body;
+  const { lastWatchedSeconds, completed } = z.object({ lastWatchedSeconds: z.number().int().nonnegative().max(2147483647), completed: z.boolean().optional() }).strict().parse(req.body);
 
   if (typeof lastWatchedSeconds !== 'number' || lastWatchedSeconds < 0) {
     return badRequest(res, 'lastWatchedSeconds must be a non-negative number');
   }
 
+  const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId }, select: { durationSeconds: true, recording: { select: { transcode: { select: { durationSeconds: true } } } } } });
+  const duration = session.recording?.transcode?.durationSeconds ?? session.durationSeconds;
+  if (duration !== null && duration !== undefined && lastWatchedSeconds > Math.ceil(duration)) return badRequest(res, 'Progress exceeds session duration');
   const progress = await prisma.sessionProgress.upsert({
     where: { userId_sessionId: { userId, sessionId } },
     create: {

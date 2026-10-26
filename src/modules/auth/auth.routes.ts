@@ -1,3 +1,4 @@
+import { asyncHandler } from '../../utils/asyncHandler';
 import { Router } from 'express';
 
 import {
@@ -16,6 +17,8 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  refreshSchema,
+  updateProfileSchema,
 } from './auth.validation';
 
 import { validate } from '../../middleware/validate';
@@ -53,7 +56,7 @@ router.post(
   '/register',
   authLimiter,
   validate(registerSchema),
-  register
+  asyncHandler(register)
 );
 
 /**
@@ -85,7 +88,7 @@ router.post(
   '/login',
   authLimiter,
   validate(loginSchema),
-  login
+  asyncHandler(login)
 );
 
 /**
@@ -114,7 +117,7 @@ router.post(
   '/forgot-password',
   authLimiter,
   validate(forgotPasswordSchema),
-  forgotPassword
+  asyncHandler(forgotPassword)
 );
 
 /**
@@ -146,7 +149,7 @@ router.post(
   '/reset-password',
   authLimiter,
   validate(resetPasswordSchema),
-  resetPassword
+  asyncHandler(resetPassword)
 );
 
 
@@ -166,7 +169,7 @@ router.post(
  *       401:
  *         description: Unauthorized
  */
-router.get('/me', authenticate, getMe);
+router.get('/me', authenticate, asyncHandler(getMe));
 
 /**
  * @openapi
@@ -183,7 +186,7 @@ router.get('/me', authenticate, getMe);
  *       401:
  *         description: Unauthorized
  */
-router.patch('/me', authenticate, updateMe);
+router.patch('/me', authenticate, validate(updateProfileSchema), asyncHandler(updateMe));
 
 /**
  * @openapi
@@ -209,7 +212,7 @@ router.patch('/me', authenticate, updateMe);
  *       401:
  *         description: Invalid or expired refresh token
  */
-router.post('/refresh', refresh);
+router.post('/refresh', authLimiter, validate(refreshSchema), asyncHandler(refresh));
 
 /**
  * @openapi
@@ -226,6 +229,6 @@ router.post('/refresh', refresh);
  *       401:
  *         description: Unauthorized
  */
-router.post('/logout', authenticate, logout);
+router.post('/logout', authenticate, asyncHandler(logout));
 
 export default router;

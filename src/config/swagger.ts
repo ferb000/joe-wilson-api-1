@@ -201,7 +201,6 @@ const options: swaggerJsdoc.Options = {
             orderIndex: { type: 'integer' },
             status: { $ref: '#/components/schemas/SessionStatus' },
             scheduledAt: { type: 'string', format: 'date-time', nullable: true },
-            muxPlaybackId: { type: 'string', nullable: true },
             durationSeconds: { type: 'integer', nullable: true },
             liveStreamUrl: { type: 'string', nullable: true },
           },
@@ -215,7 +214,10 @@ const options: swaggerJsdoc.Options = {
                 progress: { $ref: '#/components/schemas/SessionProgress' },
                 prevSession: { type: 'object', nullable: true },
                 nextSession: { type: 'object', nullable: true },
-                muxSignedToken: { type: 'string', nullable: true },
+                playbackUrl: { type: 'string', format: 'uri', nullable: true },
+                playbackUrlExpiresAt: { type: 'string', format: 'date-time', nullable: true },
+                playbackType: { type: 'string', enum: ['hls', 'audio'], nullable: true },
+                processingStatus: { type: 'string', enum: ['not_queued', 'queued', 'processing', 'ready', 'failed'], nullable: true },
               },
             },
           ],
@@ -229,8 +231,8 @@ const options: swaggerJsdoc.Options = {
             orderIndex: { type: 'integer', minimum: 1 },
             status: { $ref: '#/components/schemas/SessionStatus' },
             scheduledAt: { type: 'string', format: 'date-time' },
-            muxAssetId: { type: 'string' },
-            muxPlaybackId: { type: 'string' },
+            videoStorageKey: { type: 'string', nullable: true },
+            videoMediaId: { type: 'string', format: 'uuid', nullable: true },
             durationSeconds: { type: 'integer', minimum: 1 },
             liveStreamUrl: { type: 'string', format: 'uri' },
           },
@@ -304,6 +306,8 @@ const options: swaggerJsdoc.Options = {
           required: ['masterclassId'],
           properties: {
             masterclassId: { type: 'string', format: 'uuid' },
+          successUrl: { type: 'string', format: 'uri', description: 'Optional approved frontend return URL' },
+          cancelUrl: { type: 'string', format: 'uri', description: 'Optional approved frontend cancel URL' },
           },
         },
         PaymentStats: {
@@ -493,10 +497,13 @@ const options: swaggerJsdoc.Options = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
+            storageKey: { type: 'string', description: 'Admin responses only' },
+            isPublic: { type: 'boolean' },
             filename: { type: 'string' },
             mimeType: { type: 'string' },
             fileType: { $ref: '#/components/schemas/FileType' },
-            sizeBytes: { type: 'integer' },
+            processingStatus: { type: 'string', enum: ['not_queued', 'queued', 'processing', 'ready', 'failed'] },
+            sizeBytes: { type: 'string', pattern: '^[0-9]+$', description: 'Decimal byte count' },
             url: { type: 'string', format: 'uri' },
             uploadedBy: { type: 'string', format: 'uuid' },
             createdAt: { type: 'string', format: 'date-time' },
@@ -928,8 +935,9 @@ const options: swaggerJsdoc.Options = {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateCheckoutInput' } } },
           },
           responses: {
-            200: { description: 'Checkout initiated (returns clientSecret when Stripe is configured)' },
-            400: { description: 'Already enrolled or invalid masterclass' },
+            200: { description: 'Hosted checkout initiated (returns checkoutUrl, sessionId, paymentId, amountCents and currency)' },
+            400: { description: 'Invalid input or unapproved return URL' },
+            409: { description: 'Already enrolled, full, closed or expired checkout' },
             401: { description: 'Unauthorized' },
             404: { description: 'Masterclass not found' },
           },
@@ -1508,4 +1516,14 @@ const options: swaggerJsdoc.Options = {
   apis: [], // All paths are defined inline above
 };
 
+const videoPaths = (options.definition as unknown as { paths: Record<string, unknown> }).paths;
+Object.assign(videoPaths, {
+  '/admin/media/{id}/transcode': {
+    get: { tags: ['Media'], summary: 'Inspect private video processing status', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'Processing status, attempts, duration, renditions and safe error code' }, 404: { description: 'Video not found' } } },
+    post: { tags: ['Media'], summary: 'Queue an existing private video or retry a failed encode', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], requestBody: { content: { 'application/json': { schema: { type: 'object', additionalProperties: false } } } }, responses: { 200: { description: 'Queued' }, 409: { description: 'Already ready or actively processing' } } },
+  },
+  '/playback/{mediaId}/{asset}': {
+    get: { tags: ['Sessions'], summary: 'Read a protected HLS playlist or redirect a segment to private S3', description: 'Use the playbackUrl returned by the authenticated session or resource endpoint. Every request rechecks the viewer and enrollment. No main bearer token is required when the signed playback token is present.', parameters: [{ name: 'mediaId', in: 'path', required: true, schema: { type: 'string' } }, { name: 'asset', in: 'path', required: true, schema: { type: 'string', example: '360p/index.m3u8' } }, { name: 'token', in: 'query', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'Rewritten HLS playlist', content: { 'application/vnd.apple.mpegurl': { schema: { type: 'string' } } } }, 302: { description: 'Private segment link, valid for at most 60 seconds' }, 401: { description: 'Invalid, expired or revoked token' }, 403: { description: 'Enrollment or attachment does not authorize playback' }, 409: { description: 'Video not ready' } } },
+  },
+});
 export const swaggerSpec = swaggerJsdoc(options);

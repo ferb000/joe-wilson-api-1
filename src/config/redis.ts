@@ -1,21 +1,12 @@
 import Redis from 'ioredis';
 import { env } from './env';
 import { logger } from './logger';
-
-const isTLS = env.REDIS_URL?.startsWith('rediss://');
-
-export const redis = new Redis(env.REDIS_URL as string, {
-  ...(isTLS ? { tls: {} } : {}),
-
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  lazyConnect: false, 
-});
-
-redis.on('connect', () => {
-  logger.info('✅ Redis connected');
-});
-
-redis.on('error', (err) => {
-  logger.error(err, '❌ Redis error');
-});
+export function redisOptions(worker = false) {
+  return { ...(env.REDIS_URL.startsWith('rediss://') && { tls: {} }), maxRetriesPerRequest: worker ? null : 3, enableReadyCheck: true };
+}
+export function createRedisConnection(worker = false) {
+  const client = new Redis(env.REDIS_URL, redisOptions(worker));
+  client.on('error', () => logger.error('Redis connection failed'));
+  return client;
+}
+export const redis = createRedisConnection();

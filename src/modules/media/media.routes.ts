@@ -2,33 +2,21 @@ import { Router } from 'express';
 import multer from 'multer';
 import { authenticate } from '../../middleware/authenticate';
 import { requireAdmin } from '../../middleware/requireAdmin';
+import { asyncHandler } from '../../utils/asyncHandler';
+import { HttpError } from '../../utils/httpError';
+import { allowedMimeTypes } from './media.service';
 import * as controller from './media.controller';
-
-// Store files in memory — never write to disk on the server
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB max
-  fileFilter: (_req, file, cb) => {
-    const allowed = [
-      'image/jpeg', 'image/png', 'image/webp', 'image/gif',
-      'application/pdf',
-      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg',
-      'video/mp4', 'video/quicktime',
-      'application/zip', 'application/x-zip-compressed',
-      'text/plain',
-    ];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type ${file.mimetype} is not allowed`));
-    }
-  },
-});
-
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: (_req, file, cb) => allowedMimeTypes.includes(file.mimetype) ? cb(null, true) : cb(new HttpError(400, 'Unsupported file type')) });
 const router = Router();
-
-router.get('/', authenticate, requireAdmin, controller.listMedia);
-router.post('/upload', authenticate, requireAdmin, upload.single('file'), controller.uploadMedia);
-router.delete('/:id', authenticate, requireAdmin, controller.deleteMedia);
-
+router.use(authenticate, requireAdmin);
+router.get('/', asyncHandler(controller.listMedia));
+router.post('/upload', upload.single('file'), asyncHandler(controller.uploadMedia));
+router.post('/uploads', asyncHandler(controller.startUpload));
+router.post('/uploads/:id/parts', asyncHandler(controller.uploadPart));
+router.post('/uploads/:id/complete', asyncHandler(controller.completeUpload));
+router.delete('/uploads/:id', asyncHandler(controller.abortUpload));
+router.post('/import', asyncHandler(controller.importMedia));
+router.get('/:id/transcode', asyncHandler(controller.getTranscode));
+router.post('/:id/transcode', asyncHandler(controller.queueTranscode));
+router.delete('/:id', asyncHandler(controller.deleteMedia));
 export default router;

@@ -23,7 +23,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl ffmpeg
 
 COPY package*.json ./
 RUN npm ci --omit=dev
@@ -36,7 +36,9 @@ COPY prisma ./prisma
 COPY start.sh ./start.sh
 RUN chmod +x ./start.sh
 
-EXPOSE 8080
+ENV NODE_ENV=production
+ENV PORT=3001
+EXPOSE 3001
 
 # ✅ ONLY ONE CMD
-CMD ["node","dist/app.js"]
+CMD ["node","dist/server.js"]

@@ -71,6 +71,7 @@ model User {
   resetPasswordToken   String?
   resetPasswordExpires DateTime?
   refreshTokenHash     String?
+  tokenVersion         Int       @default(0)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -116,8 +117,9 @@ model Session {
   orderIndex      Int
   status          SessionStatus @default(upcoming)
   scheduledAt     DateTime?
-  muxAssetId      String?
-  muxPlaybackId   String?
+  videoStorageKey String?
+  videoMediaId    String?
+  recording       MediaLibrary? @relation("SessionRecording", fields: [videoMediaId], references: [id], onDelete: Restrict)
   durationSeconds Int?
   liveStreamUrl   String?
   createdAt       DateTime      @default(now())
@@ -173,6 +175,7 @@ model Payment {
   userId           String
   masterclassId    String
   gatewayReference String?       @unique
+  checkoutSessionId String?      @unique
   amountCents      Int
   currency         String        @default("usd")
   status           PaymentStatus @default(pending)
@@ -204,6 +207,10 @@ model MediaLibrary {
 
   uploader  User       @relation(fields: [uploadedBy], references: [id])
   resources Resource[]
+  recordings Session[] @relation("SessionRecording")
+  transcode VideoTranscode?
+  deleting Boolean @default(false)
+  isPublic Boolean @default(false)
 
   @@map("media_library")
 }
@@ -294,6 +301,8 @@ model Testimonial {
 }
 
 model Event {
+  description String?
+  location String?
   id          String   @id @default(uuid())
   title       String
   venue       String?
@@ -314,4 +323,66 @@ model Setting {
   updatedAt DateTime @updatedAt
 
   @@map("settings")
+}
+
+model PaymentWebhookEvent {
+  id String @id
+  type String
+  createdAt DateTime @default(now())
+  @@map("payment_webhook_events")
+}
+
+model MediaUpload {
+  id String @id @default(uuid())
+  storageKey String @unique
+  uploadId String
+  filename String
+  mimeType String
+  sizeBytes BigInt
+  uploadedBy String
+  isPublic Boolean @default(false)
+  status String @default("uploading")
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+  @@index([expiresAt])
+  @@map("media_uploads")
+}
+
+model EmailOutbox {
+  id String @id @default(uuid())
+  to String
+  subject String
+  html String
+  enqueuedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([enqueuedAt, createdAt])
+  @@map("email_outbox")
+}
+
+enum TranscodeStatus {
+  queued
+  processing
+  ready
+  failed
+}
+
+model VideoTranscode {
+  id String @id @default(uuid())
+  mediaId String @unique
+  media MediaLibrary @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  status TranscodeStatus @default(queued)
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  lockedUntil DateTime?
+  leaseToken String?
+  outputPrefix String?
+  durationSeconds Float?
+  width Int?
+  height Int?
+  renditions Json?
+  errorCode String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, availableAt])
+  @@map("video_transcodes")
 }

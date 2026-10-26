@@ -1,4 +1,6 @@
 
+import { hasActiveAccess } from '../../utils/access';
+import { getPaginationParams, getPaginationMeta, getSkip } from '../../utils/pagination';
 import { Request, Response } from 'express';
 import { AuthRequest } from '../../middleware/authenticate';
 import { prisma } from '../../config/database';
@@ -6,10 +8,13 @@ import { ok, forbidden } from '../../utils/response';
 
 export async function getMyEnrollments(req: AuthRequest, res: Response) {
   const userId = req.user!.id;
+  const params = getPaginationParams(req.query);
 
   const enrollments = await prisma.enrollment.findMany({
     where: { userId },
+    skip: getSkip(params), take: params.limit,
     include: {
+      payment: { select: { status: true } },
       masterclass: {
         include: { _count: { select: { sessions: true } } },
       },
@@ -17,23 +22,13 @@ export async function getMyEnrollments(req: AuthRequest, res: Response) {
     orderBy: { enrolledAt: 'desc' },
   });
 
-  if (enrollments.length === 0) return ok(res, []);
+  if (enrollments.length === 0) return ok(res, [], getPaginationMeta(await prisma.enrollment.count({ where: { userId } }), params));
 
   // FIXED: was a separate prisma.sessionProgress.count() inside Promise.all() per enrollment.
   // That is an N+1 query. Now we fetch all progress counts in a single grouped query.
   const masterclassIds = enrollments.map((e) => e.masterclassId);
 
-  const progressGroups = await prisma.sessionProgress.groupBy({
-    by: ['userId'],
-    where: {
-      userId,
-      completedAt: { not: null },
-      session: { masterclassId: { in: masterclassIds } },
-    },
-    // We need counts per masterclassId — Prisma groupBy doesn't support join fields,
-    // so we fetch all completed sessions and count in memory (still one query total).
-    _count: { sessionId: true },
-  });
+
 
   // Fetch all completed session→masterclass mappings in one query
   const completedSessions = await prisma.sessionProgress.findMany({
@@ -60,11 +55,18 @@ export async function getMyEnrollments(req: AuthRequest, res: Response) {
 
     return {
       id: enrollment.id,
+      userId: enrollment.userId,
+      masterclassId: enrollment.masterclassId,
       enrolledAt: enrollment.enrolledAt,
       accessExpiresAt: enrollment.accessExpiresAt,
+      hasAccess: hasActiveAccess(enrollment),
       masterclass: {
         id: enrollment.masterclass.id,
         title: enrollment.masterclass.title,
+        description: enrollment.masterclass.description,
+        priceCents: enrollment.masterclass.priceCents,
+        startsAt: enrollment.masterclass.startsAt,
+        endsAt: enrollment.masterclass.endsAt,
         coverImageUrl: enrollment.masterclass.coverImageUrl,
         status: enrollment.masterclass.status,
         sessionsCount: totalSessions,
@@ -74,14 +76,16 @@ export async function getMyEnrollments(req: AuthRequest, res: Response) {
     };
   });
 
-  return ok(res, data);
+  return ok(res, data, getPaginationMeta(await prisma.enrollment.count({ where: { userId } }), params));
 }
 
 export async function getMasterclassEnrollments(req: Request, res: Response) {
   const { masterclassId } = req.params;
+  const params = getPaginationParams(req.query);
 
   const enrollments = await prisma.enrollment.findMany({
     where: { masterclassId },
+    skip: getSkip(params), take: params.limit,
     include: {
       user: {
         select: { id: true, email: true, firstName: true, lastName: true, avatarUrl: true },
@@ -91,5 +95,5 @@ export async function getMasterclassEnrollments(req: Request, res: Response) {
     orderBy: { enrolledAt: 'desc' },
   });
 
-  return ok(res, enrollments);
+  return ok(res, enrollments, getPaginationMeta(await prisma.enrollment.count({ where: { masterclassId } }), params));
 }

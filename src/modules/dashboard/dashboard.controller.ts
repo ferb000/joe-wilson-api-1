@@ -36,7 +36,7 @@ export async function getDashboard(req: Request, res: Response) {
     }),
     prisma.masterclass.findMany({
       where: { status: 'active', isPublished: true },
-      include: { _count: { select: { enrollments: true } } },
+      include: { _count: { select: { enrollments: true, sessions: true } } },
     }),
   ]);
 
@@ -53,7 +53,8 @@ export async function getDashboard(req: Request, res: Response) {
     recentInquiries,
     activeMasterclasses: activeMasterclasses.map((mc) => ({
       ...mc,
-      enrolledCount: mc._count.enrollments,
+      enrollmentsCount: mc._count.enrollments,
+      sessionsCount: mc._count.sessions,
     })),
   });
 }

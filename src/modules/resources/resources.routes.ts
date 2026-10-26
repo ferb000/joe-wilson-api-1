@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import { authenticate } from '../../middleware/authenticate';
+import { requireAdmin } from '../../middleware/requireAdmin';
+import { asyncHandler } from '../../utils/asyncHandler';
+import * as controller from './resources.controller';
+const router = Router();
+router.use(authenticate, requireAdmin);
+router.get('/', asyncHandler(controller.listResources));
+router.post('/', asyncHandler(controller.createResource));
+router.patch('/:id', asyncHandler(controller.updateResource));
+router.delete('/:id', asyncHandler(controller.deleteResource));
+export default router;

@@ -1,7 +1,4 @@
 #!/bin/sh
-
-echo "🚀 Running migrations..."
-npx prisma migrate deploy
-
-echo "🚀 Starting app..."
-node dist/app.js
+set -eu
+./node_modules/.bin/prisma migrate deploy
+exec node dist/server.js

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as authService from './auth.service';
 import { AuthRequest } from '../../middleware/authenticate';
+import { updateProfileSchema } from './auth.schema';
 import { ok, created, badRequest, unauthorized, serverError } from '../../utils/response';
 // REMOVED: import { emailQueue } from '../../jobs/email.queue' — it was imported but never used
 
@@ -12,7 +13,7 @@ export async function register(req: Request, res: Response) {
     if (err instanceof Error && err.message === 'EMAIL_TAKEN') {
       return badRequest(res, 'An account with this email already exists');
     }
-    return serverError(res);
+    throw err;
   }
 }
 
@@ -24,7 +25,7 @@ export async function login(req: Request, res: Response) {
     if (err instanceof Error && err.message === 'INVALID_CREDENTIALS') {
       return unauthorized(res, 'Invalid email or password');
     }
-    return serverError(res);
+    throw err;
   }
 }
 
@@ -32,8 +33,9 @@ export async function refresh(req: Request, res: Response) {
   try {
     const result = await authService.refresh(req.body.refreshToken);
     return ok(res, result);
-  } catch {
-    return unauthorized(res, 'Invalid or expired refresh token');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'INVALID_TOKEN') return unauthorized(res, 'Invalid or expired refresh token');
+    throw err;
   }
 }
 
@@ -41,9 +43,7 @@ export async function logout(req: AuthRequest, res: Response) {
   try {
     await authService.logout(req.user!.id);
     return ok(res, { message: 'Logged out successfully' });
-  } catch {
-    return serverError(res);
-  }
+  } catch (err) { throw err; }
 }
 
 export async function forgotPassword(req: Request, res: Response) {
@@ -56,8 +56,9 @@ export async function resetPassword(req: Request, res: Response) {
   try {
     await authService.resetPassword(req.body.token, req.body.password);
     return ok(res, { message: 'Password reset successfully' });
-  } catch {
-    return badRequest(res, 'Invalid or expired reset token');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'INVALID_TOKEN') return badRequest(res, 'Invalid or expired reset token');
+    throw err;
   }
 }
 
@@ -65,16 +66,18 @@ export async function getMe(req: AuthRequest, res: Response) {
   try {
     const user = await authService.getMe(req.user!.id);
     return ok(res, user);
-  } catch {
-    return serverError(res);
+  } catch (err) {
+    throw err;
   }
 }
 
 export async function updateMe(req: AuthRequest, res: Response) {
+  const parsed = updateProfileSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, 'Invalid profile fields');
   try {
-    const user = await authService.updateProfile(req.user!.id, req.body);
+    const user = await authService.updateProfile(req.user!.id, parsed.data);
     return ok(res, user);
-  } catch {
-    return serverError(res);
+  } catch (err) {
+    throw err;
   }
 }

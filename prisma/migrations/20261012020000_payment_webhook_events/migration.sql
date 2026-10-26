@@ -1,0 +1,1 @@
+CREATE TABLE "payment_webhook_events" ("id" TEXT PRIMARY KEY, "type" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);

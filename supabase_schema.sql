@@ -22,6 +22,9 @@ CREATE TYPE "InquiryStatus" AS ENUM ('open', 'closed');
 -- CreateEnum
 CREATE TYPE "QuoteStatus" AS ENUM ('new', 'reviewing', 'quoted', 'booked', 'closed');
 
+-- CreateEnum
+CREATE TYPE "TranscodeStatus" AS ENUM ('queued', 'processing', 'ready', 'failed');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" TEXT NOT NULL,
@@ -36,6 +39,7 @@ CREATE TABLE "users" (
     "resetPasswordToken" TEXT,
     "resetPasswordExpires" TIMESTAMP(3),
     "refreshTokenHash" TEXT,
+    "tokenVersion" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -69,8 +73,8 @@ CREATE TABLE "sessions" (
     "orderIndex" INTEGER NOT NULL,
     "status" "SessionStatus" NOT NULL DEFAULT 'upcoming',
     "scheduledAt" TIMESTAMP(3),
-    "muxAssetId" TEXT,
-    "muxPlaybackId" TEXT,
+    "videoStorageKey" TEXT,
+    "videoMediaId" TEXT,
     "durationSeconds" INTEGER,
     "liveStreamUrl" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -109,6 +113,7 @@ CREATE TABLE "payments" (
     "userId" TEXT NOT NULL,
     "masterclassId" TEXT NOT NULL,
     "gatewayReference" TEXT,
+    "checkoutSessionId" TEXT,
     "amountCents" INTEGER NOT NULL,
     "currency" TEXT NOT NULL DEFAULT 'usd',
     "status" "PaymentStatus" NOT NULL DEFAULT 'pending',
@@ -130,6 +135,8 @@ CREATE TABLE "media_library" (
     "sizeBytes" BIGINT NOT NULL,
     "uploadedBy" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deleting" BOOLEAN NOT NULL DEFAULT false,
+    "isPublic" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "media_library_pkey" PRIMARY KEY ("id")
 );
@@ -218,6 +225,8 @@ CREATE TABLE "testimonials" (
 
 -- CreateTable
 CREATE TABLE "events" (
+    "description" TEXT,
+    "location" TEXT,
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "venue" TEXT,
@@ -239,6 +248,65 @@ CREATE TABLE "settings" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "settings_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "payment_webhook_events" (
+    "id" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "payment_webhook_events_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "media_uploads" (
+    "id" TEXT NOT NULL,
+    "storageKey" TEXT NOT NULL,
+    "uploadId" TEXT NOT NULL,
+    "filename" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "sizeBytes" BIGINT NOT NULL,
+    "uploadedBy" TEXT NOT NULL,
+    "isPublic" BOOLEAN NOT NULL DEFAULT false,
+    "status" TEXT NOT NULL DEFAULT 'uploading',
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "media_uploads_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "email_outbox" (
+    "id" TEXT NOT NULL,
+    "to" TEXT NOT NULL,
+    "subject" TEXT NOT NULL,
+    "html" TEXT NOT NULL,
+    "enqueuedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "email_outbox_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "video_transcodes" (
+    "id" TEXT NOT NULL,
+    "mediaId" TEXT NOT NULL,
+    "status" "TranscodeStatus" NOT NULL DEFAULT 'queued',
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "availableAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lockedUntil" TIMESTAMP(3),
+    "leaseToken" TEXT,
+    "outputPrefix" TEXT,
+    "durationSeconds" DOUBLE PRECISION,
+    "width" INTEGER,
+    "height" INTEGER,
+    "renditions" JSONB,
+    "errorCode" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "video_transcodes_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -275,6 +343,9 @@ CREATE UNIQUE INDEX "session_progress_userId_sessionId_key" ON "session_progress
 CREATE UNIQUE INDEX "payments_gatewayReference_key" ON "payments"("gatewayReference");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "payments_checkoutSessionId_key" ON "payments"("checkoutSessionId");
+
+-- CreateIndex
 CREATE INDEX "payments_userId_idx" ON "payments"("userId");
 
 -- CreateIndex
@@ -291,6 +362,24 @@ CREATE UNIQUE INDEX "services_slug_key" ON "services"("slug");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "settings_key_key" ON "settings"("key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "media_uploads_storageKey_key" ON "media_uploads"("storageKey");
+
+-- CreateIndex
+CREATE INDEX "media_uploads_expiresAt_idx" ON "media_uploads"("expiresAt");
+
+-- CreateIndex
+CREATE INDEX "email_outbox_enqueuedAt_createdAt_idx" ON "email_outbox"("enqueuedAt", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "video_transcodes_mediaId_key" ON "video_transcodes"("mediaId");
+
+-- CreateIndex
+CREATE INDEX "video_transcodes_status_availableAt_idx" ON "video_transcodes"("status", "availableAt");
+
+-- AddForeignKey
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_videoMediaId_fkey" FOREIGN KEY ("videoMediaId") REFERENCES "media_library"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_masterclassId_fkey" FOREIGN KEY ("masterclassId") REFERENCES "masterclasses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -331,3 +420,5 @@ ALTER TABLE "resources" ADD CONSTRAINT "resources_mediaId_fkey" FOREIGN KEY ("me
 -- AddForeignKey
 ALTER TABLE "quote_requests" ADD CONSTRAINT "quote_requests_serviceId_fkey" FOREIGN KEY ("serviceId") REFERENCES "services"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE "video_transcodes" ADD CONSTRAINT "video_transcodes_mediaId_fkey" FOREIGN KEY ("mediaId") REFERENCES "media_library"("id") ON DELETE CASCADE ON UPDATE CASCADE;

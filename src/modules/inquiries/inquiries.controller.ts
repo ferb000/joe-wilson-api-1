@@ -1,40 +1,29 @@
+import { z } from 'zod';
+import { getPaginationParams, getPaginationMeta, getSkip } from '../../utils/pagination';
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
 import { ok, created, notFound } from '../../utils/response';
 import { sendInquiryNotificationEmail, sendInquiryReplyEmail } from '../../utils/email';
 
-// FIXED: sanitize user-supplied strings before embedding in HTML emails.
-// Prevents HTML injection / stored XSS in the admin's inbox.
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 export async function submitInquiry(req: Request, res: Response) {
-  // Input is already validated by the Zod schema in inquiries.routes.ts
-  const inquiry = await prisma.inquiry.create({ data: req.body });
-
-  // Pass escaped values to the email utility
-  await sendInquiryNotificationEmail(
-    escapeHtml(inquiry.senderName),
-    escapeHtml(inquiry.senderEmail),
-    escapeHtml(inquiry.message)
-  );
+  const inquiry = await prisma.$transaction(async tx => {
+    const inquiry = await tx.inquiry.create({ data: req.body });
+    await sendInquiryNotificationEmail(inquiry.senderName, inquiry.senderEmail, inquiry.message, tx);
+    return inquiry;
+  });
 
   return created(res, { id: inquiry.id });
 }
 
 export async function listInquiries(req: Request, res: Response) {
-  const { status, sort } = req.query;
+  const params = getPaginationParams(req.query);
+  const { status, sort } = z.object({ status: z.enum(['open','closed']).optional(), sort: z.enum(['oldest','newest']).optional() }).parse(req.query);
   const inquiries = await prisma.inquiry.findMany({
     where: status ? { status: status as 'open' | 'closed' } : undefined,
+    skip: getSkip(params), take: params.limit,
     orderBy: { createdAt: sort === 'oldest' ? 'asc' : 'desc' },
   });
-  return ok(res, inquiries);
+  return ok(res, inquiries, getPaginationMeta(await prisma.inquiry.count({ where: status ? { status } : undefined }), params));
 }
 
 export async function getInquiry(req: Request, res: Response) {
@@ -47,12 +36,11 @@ export async function replyToInquiry(req: Request, res: Response) {
   const inquiry = await prisma.inquiry.findUnique({ where: { id: req.params.id } });
   if (!inquiry) return notFound(res);
 
-  const updated = await prisma.inquiry.update({
-    where: { id: req.params.id },
-    data: { adminReply: req.body.replyText, repliedAt: new Date(), status: 'closed' },
+  const updated = await prisma.$transaction(async tx => {
+    const updated = await tx.inquiry.update({ where: { id: inquiry.id }, data: { adminReply: req.body.replyText, repliedAt: new Date(), status: 'closed' } });
+    await sendInquiryReplyEmail(inquiry.senderEmail, inquiry.senderName, req.body.replyText, tx);
+    return updated;
   });
-
-  await sendInquiryReplyEmail(inquiry.senderEmail, escapeHtml(inquiry.senderName), req.body.replyText);
   return ok(res, updated);
 }
 

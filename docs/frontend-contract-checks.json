@@ -1,0 +1,549 @@
+{
+  "date": "2026-10-26",
+  "status": "passed",
+  "scope": "Local adapter execution against backend route inventory and validation schemas; no live provider or database calls",
+  "capturedCalls": 77,
+  "schemaChecks": 9,
+  "missingRoutes": [],
+  "endpointInventory": [
+    {
+      "app": "admin",
+      "operation": "login",
+      "method": "POST",
+      "url": "/v1/auth/login",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "me",
+      "method": "GET",
+      "url": "/v1/auth/me",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateMe",
+      "method": "PATCH",
+      "url": "/v1/auth/me",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "dashboard",
+      "method": "GET",
+      "url": "/v1/admin/dashboard",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "masterclasses",
+      "method": "GET",
+      "url": "/v1/admin/masterclasses",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "masterclassesPage",
+      "method": "GET",
+      "url": "/v1/admin/masterclasses",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "masterclass",
+      "method": "GET",
+      "url": "/v1/admin/masterclasses/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "createMasterclass",
+      "method": "POST",
+      "url": "/v1/admin/masterclasses",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateMasterclass",
+      "method": "PATCH",
+      "url": "/v1/admin/masterclasses/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "deleteMasterclass",
+      "method": "DELETE",
+      "url": "/v1/admin/masterclasses/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "createSession",
+      "method": "POST",
+      "url": "/v1/admin/masterclasses/11111111-1111-4111-8111-111111111111/sessions",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateSession",
+      "method": "PATCH",
+      "url": "/v1/admin/masterclasses/sessions/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "deleteSession",
+      "method": "DELETE",
+      "url": "/v1/admin/masterclasses/sessions/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "testimonials",
+      "method": "GET",
+      "url": "/v1/testimonials",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "testimonialsPage",
+      "method": "GET",
+      "url": "/v1/testimonials",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "createTestimonial",
+      "method": "POST",
+      "url": "/v1/testimonials",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateTestimonial",
+      "method": "PATCH",
+      "url": "/v1/testimonials/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "deleteTestimonial",
+      "method": "DELETE",
+      "url": "/v1/testimonials/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "settings",
+      "method": "GET",
+      "url": "/v1/settings",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateSettings",
+      "method": "PATCH",
+      "url": "/v1/settings",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "media",
+      "method": "GET",
+      "url": "/v1/admin/media",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "mediaPage",
+      "method": "GET",
+      "url": "/v1/admin/media",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "uploadMedia",
+      "method": "POST",
+      "url": "/v1/admin/media/upload",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "deleteMedia",
+      "method": "DELETE",
+      "url": "/v1/admin/media/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "transcode",
+      "method": "GET",
+      "url": "/v1/admin/media/11111111-1111-4111-8111-111111111111/transcode",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "retryTranscode",
+      "method": "POST",
+      "url": "/v1/admin/media/11111111-1111-4111-8111-111111111111/transcode",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "resources",
+      "method": "GET",
+      "url": "/v1/admin/resources",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "createResource",
+      "method": "POST",
+      "url": "/v1/admin/resources",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateResource",
+      "method": "PATCH",
+      "url": "/v1/admin/resources/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "deleteResource",
+      "method": "DELETE",
+      "url": "/v1/admin/resources/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "inquiries",
+      "method": "GET",
+      "url": "/v1/inquiries",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "inquiriesPage",
+      "method": "GET",
+      "url": "/v1/inquiries",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "replyInquiry",
+      "method": "POST",
+      "url": "/v1/inquiries/11111111-1111-4111-8111-111111111111/reply",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "handleInquiry",
+      "method": "PATCH",
+      "url": "/v1/inquiries/11111111-1111-4111-8111-111111111111/handle",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "quotes",
+      "method": "GET",
+      "url": "/v1/quotes",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "quotesPage",
+      "method": "GET",
+      "url": "/v1/quotes",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateQuote",
+      "method": "PATCH",
+      "url": "/v1/quotes/11111111-1111-4111-8111-111111111111/status",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "users",
+      "method": "GET",
+      "url": "/v1/admin/users",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "usersPage",
+      "method": "GET",
+      "url": "/v1/admin/users",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "user",
+      "method": "GET",
+      "url": "/v1/admin/users/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "payments",
+      "method": "GET",
+      "url": "/v1/admin/payments",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "refundPayment",
+      "method": "POST",
+      "url": "/v1/admin/payments/11111111-1111-4111-8111-111111111111/refund",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "services",
+      "method": "GET",
+      "url": "/v1/admin/services",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "servicesPage",
+      "method": "GET",
+      "url": "/v1/admin/services",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "createService",
+      "method": "POST",
+      "url": "/v1/services",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateService",
+      "method": "PATCH",
+      "url": "/v1/services/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "deleteService",
+      "method": "DELETE",
+      "url": "/v1/services/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "events",
+      "method": "GET",
+      "url": "/v1/admin/events",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "eventsPage",
+      "method": "GET",
+      "url": "/v1/admin/events",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "createEvent",
+      "method": "POST",
+      "url": "/v1/events",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "updateEvent",
+      "method": "PATCH",
+      "url": "/v1/events/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "admin",
+      "operation": "deleteEvent",
+      "method": "DELETE",
+      "url": "/v1/events/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.register",
+      "method": "POST",
+      "url": "/v1/auth/register",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.registerWithProfile",
+      "method": "POST",
+      "url": "/v1/auth/register",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.login",
+      "method": "POST",
+      "url": "/v1/auth/login",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.refresh",
+      "method": "POST",
+      "url": "/v1/auth/refresh",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.logout",
+      "method": "POST",
+      "url": "/v1/auth/logout",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.forgotPassword",
+      "method": "POST",
+      "url": "/v1/auth/forgot-password",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.resetPassword",
+      "method": "POST",
+      "url": "/v1/auth/reset-password",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.me",
+      "method": "GET",
+      "url": "/v1/auth/me",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "authApi.updateMe",
+      "method": "PATCH",
+      "url": "/v1/auth/me",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "enrollmentsApi.myEnrollments",
+      "method": "GET",
+      "url": "/v1/enrollments/my",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "eventsApi.list",
+      "method": "GET",
+      "url": "/v1/events",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "inquiriesApi.submit",
+      "method": "POST",
+      "url": "/v1/inquiries",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "masterclassesApi.list",
+      "method": "GET",
+      "url": "/v1/masterclasses",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "masterclassesApi.getById",
+      "method": "GET",
+      "url": "/v1/masterclasses/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "masterclassesApi.getSessions",
+      "method": "GET",
+      "url": "/v1/masterclasses/11111111-1111-4111-8111-111111111111/sessions",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "paymentsApi.createCheckout",
+      "method": "POST",
+      "url": "/v1/payments/checkout",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "paymentsApi.myPayments",
+      "method": "GET",
+      "url": "/v1/payments/my",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "quotesApi.submit",
+      "method": "GET",
+      "url": "/v1/services/live-performance",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "quotesApi.submit",
+      "method": "POST",
+      "url": "/v1/quotes",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "servicesApi.list",
+      "method": "GET",
+      "url": "/v1/services",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "servicesApi.getBySlug",
+      "method": "GET",
+      "url": "/v1/services/live-performance",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "sessionsApi.getById",
+      "method": "GET",
+      "url": "/v1/sessions/11111111-1111-4111-8111-111111111111",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "sessionsApi.updateProgress",
+      "method": "POST",
+      "url": "/v1/sessions/11111111-1111-4111-8111-111111111111/progress",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "settingsApi.getPublic",
+      "method": "GET",
+      "url": "/v1/settings/public",
+      "routeExists": true
+    },
+    {
+      "app": "client",
+      "operation": "testimonialsApi.list",
+      "method": "GET",
+      "url": "/v1/testimonials",
+      "routeExists": true
+    }
+  ]
+}

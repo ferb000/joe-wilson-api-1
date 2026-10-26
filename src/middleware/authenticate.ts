@@ -1,44 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt';
+import { prisma } from '../config/database';
 import { unauthorized } from '../utils/response';
-
-export interface AuthRequest extends Request {
-  user?: { id: string; email: string; role: string };
-}
-
-export function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-
-  console.log('[AUTH] Authorization header:', authHeader ? 'PRESENT' : 'MISSING');
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log('[AUTH] Missing/invalid Authorization header');
-    return unauthorized(res);
-  }
-
-  const token = authHeader.split(' ')[1];
-
+export interface AuthRequest extends Request { user?: { id: string; email: string; role: string } }
+export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (!header || !/^Bearer \S+$/.test(header)) return unauthorized(res);
+  let payload;
+  try { payload = verifyAccessToken(header.slice(7)); }
+  catch { return unauthorized(res, 'Invalid or expired token'); }
   try {
-    const payload = verifyAccessToken(token);
-
-    console.log('[AUTH] Decoded JWT payload:', {
-      sub: payload.sub,
-      email: payload.email,
-      role: payload.role,
-    });
-
-    req.user = {
-      id: payload.sub,
-      email: payload.email,
-      role: payload.role,
-    };
-
-    console.log('[AUTH] req.user:', req.user);
-
+    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, email: true, role: true, tokenVersion: true } });
+    if (!user || user.tokenVersion !== payload.version) return unauthorized(res, 'Invalid or expired token');
+    req.user = { id: user.id, email: user.email, role: user.role };
     next();
-
-  } catch (error) {
-    console.error('[AUTH] JWT verification failed:', error);
-    return unauthorized(res, 'Invalid or expired token');
-  }
+  } catch (error) { next(error); }
+}
+export function optionalAuthenticate(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, next);
 }

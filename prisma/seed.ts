@@ -1,18 +1,24 @@
+import 'dotenv/config';
 import { PrismaClient, Role, MasterclassStatus, SessionStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding database...');
+  if (process.env.NODE_ENV === 'production') throw new Error('Demo seeding is disabled in production');
+  const ownerEmail = process.env.SEED_OWNER_EMAIL;
+  const ownerSecret = process.env.SEED_OWNER_PASSWORD;
+  const memberSecret = process.env.SEED_MEMBER_PASSWORD;
+  if (!ownerEmail || !ownerSecret || !memberSecret || ownerSecret.length < 12 || memberSecret.length < 12) throw new Error('Set SEED_OWNER_EMAIL and strong SEED_OWNER_PASSWORD/SEED_MEMBER_PASSWORD before seeding');
+  console.log('Seeding development database...');
 
   // Create owner account
-  const ownerPassword = await bcrypt.hash('Admin@123456', 12);
+  const ownerPassword = await bcrypt.hash(ownerSecret, 12);
   const owner = await prisma.user.upsert({
-    where: { email: 'joseph@mrwilson.com' },
+    where: { email: ownerEmail },
     update: {},
     create: {
-      email: 'joseph@mrwilson.com',
+      email: ownerEmail,
       passwordHash: ownerPassword,
       firstName: 'Joseph',
       lastName: 'Wilson',
@@ -23,7 +29,7 @@ async function main() {
   console.log('Owner created:', owner.email);
 
   // Create a test member
-  const memberPassword = await bcrypt.hash('Member@123456', 12);
+  const memberPassword = await bcrypt.hash(memberSecret, 12);
   const member = await prisma.user.upsert({
     where: { email: 'test@member.com' },
     update: {},
@@ -194,8 +200,8 @@ async function main() {
   console.log('Settings created:', settingsData.length);
   console.log('Seed complete!');
   console.log('');
-  console.log('Owner login:  joseph@mrwilson.com / Admin@123456');
-  console.log('Member login: test@member.com / Member@123456');
+
+
 }
 
 main()
