@@ -8,6 +8,8 @@ const { execFileSync } = require('node:child_process');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wilson-local-storage-'));
 Object.assign(process.env, { NODE_ENV: 'development', STORAGE_DRIVER: 'local', LOCAL_STORAGE_DIRECTORY: path.join(directory, '.local-storage'), DATABASE_URL: 'postgresql://test:test@localhost:5432/test', JWT_SECRET: 'a'.repeat(64), JWT_REFRESH_SECRET: 'b'.repeat(64), REDIS_ENABLED: 'false', STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: '', RESEND_API_KEY: '', AWS_ACCESS_KEY_ID: '', AWS_SECRET_ACCESS_KEY: '', S3_BUCKET: '' });
 const commands = require('@aws-sdk/client-s3');
+process.env.FRONTEND_URLS = 'http://localhost:3000,http://localhost:5174';
+process.env.CORS_ORIGINS = '';
 const { storage, s3 } = require('../dist/config/s3');
 const { localObjectPath } = require('../dist/modules/media/local.storage');
 const { localFileUrl } = require('../dist/modules/media/local.files.routes');
@@ -28,6 +30,25 @@ test('local filesystem upload/read/delete needs no AWS configuration', async () 
   const head = await storage.send(new commands.HeadObjectCommand({ Key })); assert.equal(head.ContentLength, 17); assert.equal(head.ContentType, 'text/plain');
   const object = await storage.send(new commands.GetObjectCommand({ Key })); const chunks = []; for await (const chunk of object.Body) chunks.push(chunk); assert.equal(Buffer.concat(chunks).toString(), 'Hello local files');
   await storage.send(new commands.DeleteObjectCommand({ Key })); await assert.rejects(storage.send(new commands.HeadObjectCommand({ Key })), e => e.$metadata.httpStatusCode === 404);
+});
+test('local multipart upload CORS permits configured frontend origins', async () => {
+  const app = require('../dist/app').default;
+  const server = http.createServer(app); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/v1/local-files/part?token=grant`;
+    const response = await fetch(url, {
+      method: 'OPTIONS',
+      headers: { Origin: 'http://localhost:5174', 'Access-Control-Request-Method': 'PUT' },
+    });
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5174');
+    assert.match(response.headers.get('access-control-allow-methods'), /PUT/);
+    const unlisted = await fetch(url, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://unlisted.example', 'Access-Control-Request-Method': 'PUT' },
+    });
+    assert.equal(unlisted.headers.get('access-control-allow-origin'), null);
+  } finally { await new Promise(resolve => server.close(resolve)); }
 });
 test('HTTP multipart links, signed downloads, ranges and public images work without exposing the storage directory', async () => {
   const express = require('express'); const app = express(); app.use('/v1/local-files', router); app.use(errorHandler);

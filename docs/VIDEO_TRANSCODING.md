@@ -4,7 +4,7 @@ Production videos use our FFmpeg worker and a private S3 bucket. Bunny Stream an
 
 ## Local development
 
-Set STORAGE_DRIVER=local and LOCAL_STORAGE_DIRECTORY=.local-storage in the API .env.local. npm run dev:local starts the API, both UI apps and the FFmpeg worker. Upload originals through the existing admin media library; multipart staging, source files and transcoded outputs stay under .local-storage, which is ignored by Git. No AWS, Redis or Docker service is needed for local media. FFmpeg and ffprobe must be installed or configured through FFMPEG_PATH and FFPROBE_PATH.
+Set STORAGE_DRIVER=local and LOCAL_STORAGE_DIRECTORY=.local-storage in the API .env.local. npm run dev:local starts the API, both UI apps and the FFmpeg worker. In local-storage mode, `FRONTEND_URLS` is used as the default CORS allowlist for browser uploads and playback; set `CORS_ORIGINS` to override it. Upload originals through the existing admin media library; multipart staging, source files and transcoded outputs stay under .local-storage, which is ignored by Git. No AWS, Redis or Docker service is needed for local media. FFmpeg and ffprobe must be installed or configured through FFMPEG_PATH and FFPROBE_PATH.
 
 Public images use the local public-file route. Private files use signed expiring links, and video manifests/segments retain the existing enrollment, token-version and attachment checks. Local storage is rejected outside development. Changing drivers does not copy existing files between disk and S3.
 

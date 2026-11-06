@@ -1,86 +1,146 @@
-import localFilesRoutes from './modules/media/local.files.routes';
-import { localStorageEnabled } from './modules/media/local.storage';
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import compression from 'compression';
-import swaggerUi from 'swagger-ui-express';
-import timeout from 'connect-timeout';
-import { randomUUID } from 'crypto';
-import { env } from './config/env';
-import { prisma } from './config/database';
-import { redis, redisEnabled } from './config/redis';
-import { swaggerSpec } from './config/swagger';
-import { errorHandler } from './middleware/errorHandler';
-import { globalLimiter, playbackLimiter } from './middleware/rateLimit';
-import { httpLogger } from './middleware/logger';
-import { docsAccess } from './middleware/docsAccess';
-import { asyncHandler } from './utils/asyncHandler';
-import { withDeadline } from './utils/deadline';
-import authRoutes from './modules/auth/auth.routes';
-import masterclassRoutes from './modules/masterclasses/masterclasses.routes';
-import adminMasterclassRoutes from './modules/masterclasses/admin.masterclasses.routes';
-import sessionRoutes from './modules/sessions/sessions.routes';
-import enrollmentRoutes from './modules/enrollments/enrollments.routes';
-import paymentRoutes from './modules/payments/payments.routes';
-import adminPaymentRoutes from './modules/payments/admin.payments.routes';
-import inquiryRoutes from './modules/inquiries/inquiries.routes';
-import quoteRoutes from './modules/quotes/quotes.routes';
-import serviceRoutes from './modules/services/services.routes';
-import adminServiceRoutes from './modules/services/admin.services.routes';
-import adminEventRoutes from './modules/events/admin.events.routes';
-import eventRoutes from './modules/events/events.routes';
-import testimonialRoutes from './modules/testimonials/testimonials.routes';
-import settingsRoutes from './modules/settings/settings.routes';
-import mediaRoutes from './modules/media/media.routes';
-import playbackRoutes from './modules/media/transcoding/playback';
-import resourceRoutes from './modules/resources/resources.routes';
-import userRoutes from './modules/users/users.routes';
-import dashboardRoutes from './modules/dashboard/dashboard.routes';
+import localFilesRoutes from "./modules/media/local.files.routes";
+import { localStorageEnabled } from "./modules/media/local.storage";
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import swaggerUi from "swagger-ui-express";
+import timeout from "connect-timeout";
+import { randomUUID } from "crypto";
+import { env } from "./config/env";
+import { prisma } from "./config/database";
+import { redis, redisEnabled } from "./config/redis";
+import { swaggerSpec } from "./config/swagger";
+import { errorHandler } from "./middleware/errorHandler";
+import { globalLimiter, playbackLimiter } from "./middleware/rateLimit";
+import { httpLogger } from "./middleware/logger";
+import { docsAccess } from "./middleware/docsAccess";
+import { asyncHandler } from "./utils/asyncHandler";
+import { withDeadline } from "./utils/deadline";
+import authRoutes from "./modules/auth/auth.routes";
+import masterclassRoutes from "./modules/masterclasses/masterclasses.routes";
+import adminMasterclassRoutes from "./modules/masterclasses/admin.masterclasses.routes";
+import sessionRoutes from "./modules/sessions/sessions.routes";
+import enrollmentRoutes from "./modules/enrollments/enrollments.routes";
+import paymentRoutes from "./modules/payments/payments.routes";
+import adminPaymentRoutes from "./modules/payments/admin.payments.routes";
+import inquiryRoutes from "./modules/inquiries/inquiries.routes";
+import quoteRoutes from "./modules/quotes/quotes.routes";
+import serviceRoutes from "./modules/services/services.routes";
+import adminServiceRoutes from "./modules/services/admin.services.routes";
+import adminEventRoutes from "./modules/events/admin.events.routes";
+import eventRoutes from "./modules/events/events.routes";
+import testimonialRoutes from "./modules/testimonials/testimonials.routes";
+import settingsRoutes from "./modules/settings/settings.routes";
+import mediaRoutes from "./modules/media/media.routes";
+import playbackRoutes from "./modules/media/transcoding/playback";
+import resourceRoutes from "./modules/resources/resources.routes";
+import userRoutes from "./modules/users/users.routes";
+import dashboardRoutes from "./modules/dashboard/dashboard.routes";
 const app = express();
-const corsOrigins = env.CORS_ORIGINS ? env.CORS_ORIGINS.split(',').map(origin => origin.trim()) : [];
-app.set('trust proxy', 1);
-app.use((req, res, next) => { req.id = randomUUID(); res.setHeader('X-Request-ID', req.id); next(); });
-app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], imgSrc: ["'self'", 'data:', 'https:'], scriptSrc: ["'self'", "'unsafe-inline'"] } } }) as express.RequestHandler);
+const corsOrigins = env.CORS_ORIGINS
+  ? env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
+  : localStorageEnabled
+    ? env.FRONTEND_URLS.split(",").map((origin) => origin.trim())
+    : [];
+app.set("trust proxy", 1);
+app.use((req, res, next) => {
+  req.id = randomUUID();
+  res.setHeader("X-Request-ID", req.id);
+  next();
+});
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+      },
+    },
+  }) as express.RequestHandler,
+);
 app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(httpLogger as unknown as express.RequestHandler);
-app.get('/health', (_req, res) => res.json({ success: true, status: 'ok' }));
-app.get('/ready', asyncHandler(async (_req, res) => {
-  try { await withDeadline(Promise.all([prisma.$queryRaw`SELECT 1`, ...(redisEnabled ? [redis.ping()] : [])]), 2000); res.json({ success: true, status: 'ready' }); }
-  catch { res.status(503).json({ success: false, status: 'not_ready' }); }
-}));
-app.get('/', (_req, res) => res.json({ success: true, message: 'JW API is running' }));
-app.use('/docs', docsAccess, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-app.get('/swagger-json', docsAccess, (_req, res) => res.json(swaggerSpec));
+app.get("/health", (_req, res) => res.json({ success: true, status: "ok" }));
+app.get(
+  "/ready",
+  asyncHandler(async (_req, res) => {
+    try {
+      await withDeadline(
+        Promise.all([
+          prisma.$queryRaw`SELECT 1`,
+          ...(redisEnabled ? [redis.ping()] : []),
+        ]),
+        2000,
+      );
+      res.json({ success: true, status: "ready" });
+    } catch {
+      res.status(503).json({ success: false, status: "not_ready" });
+    }
+  }),
+);
+app.get("/", (_req, res) =>
+  res.json({ success: true, message: "JW API is running" }),
+);
+app.use("/docs", docsAccess, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get("/swagger-json", docsAccess, (_req, res) => res.json(swaggerSpec));
 // Provider delivery must not share visitors' IP quota or depend on Redis availability.
-app.use('/v1/payments/webhook', express.raw({ type: 'application/json', limit: '1mb' }) as express.RequestHandler);
-app.use((req, res, next) => req.path === '/v1/payments/webhook' ? next() : req.path.startsWith('/v1/playback/') ? playbackLimiter(req, res, next) : globalLimiter(req, res, next));
+app.use(
+  "/v1/payments/webhook",
+  express.raw({
+    type: "application/json",
+    limit: "1mb",
+  }) as express.RequestHandler,
+);
+app.use((req, res, next) =>
+  req.path === "/v1/payments/webhook"
+    ? next()
+    : req.path.startsWith("/v1/playback/")
+      ? playbackLimiter(req, res, next)
+      : globalLimiter(req, res, next),
+);
 app.use(compression());
-app.use((req, res, next) => timeout(req.path === '/v1/admin/media/upload' || req.path.endsWith('/complete') ? '120s' : '30s')(req, res, next));
-if (localStorageEnabled) app.use('/v1/local-files', localFilesRoutes);
-app.use(express.json({ limit: '1mb' }) as express.RequestHandler);
-app.use(express.urlencoded({ extended: false, limit: '1mb' }) as express.RequestHandler);
-app.use((req, _res, next) => { if (!(req as express.Request & { timedout?: boolean }).timedout) next(); });
-app.use('/v1/auth', authRoutes);
-app.use('/v1/services', serviceRoutes);
-app.use('/v1/events', eventRoutes);
-app.use('/v1/testimonials', testimonialRoutes);
-app.use('/v1/settings', settingsRoutes);
-app.use('/v1/inquiries', inquiryRoutes);
-app.use('/v1/quotes', quoteRoutes);
-app.use('/v1/masterclasses', masterclassRoutes);
-app.use('/v1/sessions', sessionRoutes);
-app.use('/v1/playback', playbackRoutes);
-app.use('/v1/enrollments', enrollmentRoutes);
-app.use('/v1/payments', paymentRoutes);
-app.use('/v1/admin/services', adminServiceRoutes);
-app.use('/v1/admin/events', adminEventRoutes);
-app.use('/v1/admin/dashboard', dashboardRoutes);
-app.use('/v1/admin/masterclasses', adminMasterclassRoutes);
-app.use('/v1/admin/payments', adminPaymentRoutes);
-app.use('/v1/admin/users', userRoutes);
-app.use('/v1/admin/media', mediaRoutes);
-app.use('/v1/admin/resources', resourceRoutes);
-app.use((_req, res) => res.status(404).json({ success: false, error: 'Route not found' }));
+app.use((req, res, next) =>
+  timeout(
+    req.path === "/v1/admin/media/upload" || req.path.endsWith("/complete")
+      ? "120s"
+      : "30s",
+  )(req, res, next),
+);
+if (localStorageEnabled) app.use("/v1/local-files", localFilesRoutes);
+app.use(express.json({ limit: "1mb" }) as express.RequestHandler);
+app.use(
+  express.urlencoded({
+    extended: false,
+    limit: "1mb",
+  }) as express.RequestHandler,
+);
+app.use((req, _res, next) => {
+  if (!(req as express.Request & { timedout?: boolean }).timedout) next();
+});
+app.use("/v1/auth", authRoutes);
+app.use("/v1/services", serviceRoutes);
+app.use("/v1/events", eventRoutes);
+app.use("/v1/testimonials", testimonialRoutes);
+app.use("/v1/settings", settingsRoutes);
+app.use("/v1/inquiries", inquiryRoutes);
+app.use("/v1/quotes", quoteRoutes);
+app.use("/v1/masterclasses", masterclassRoutes);
+app.use("/v1/sessions", sessionRoutes);
+app.use("/v1/playback", playbackRoutes);
+app.use("/v1/enrollments", enrollmentRoutes);
+app.use("/v1/payments", paymentRoutes);
+app.use("/v1/admin/services", adminServiceRoutes);
+app.use("/v1/admin/events", adminEventRoutes);
+app.use("/v1/admin/dashboard", dashboardRoutes);
+app.use("/v1/admin/masterclasses", adminMasterclassRoutes);
+app.use("/v1/admin/payments", adminPaymentRoutes);
+app.use("/v1/admin/users", userRoutes);
+app.use("/v1/admin/media", mediaRoutes);
+app.use("/v1/admin/resources", resourceRoutes);
+app.use((_req, res) =>
+  res.status(404).json({ success: false, error: "Route not found" }),
+);
 app.use(errorHandler);
 export default app;

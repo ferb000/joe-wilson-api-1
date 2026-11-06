@@ -16,13 +16,13 @@ Ubuntu 24.04 LTS, x86_64, works with the included Docker image and its FFmpeg bi
 
 In AWS EC2, launch Ubuntu Server 24.04 LTS. Create or choose a key pair and save its `.pem` file privately. In the instance security group, allow:
 
-| Port | Source                      | Purpose                                   |
-| ---- | --------------------------- | ----------------------------------------- |
-| 22   | Your current public IP only | SSH administration                        |
-| 80   | `0.0.0.0/0` and `::/0`      | HTTP and HTTPS certificate setup/redirect |
-| 443  | `0.0.0.0/0` and `::/0`      | Website and API HTTPS                     |
+| Port | Source                      | Purpose                                    |
+| ---- | --------------------------- | ------------------------------------------ |
+| 22   | Your current public IP only | SSH administration                         |
+| 80   | `0.0.0.0/0` and `::/0`      | Website and API over HTTP for initial test |
+| 443  | `0.0.0.0/0` and `::/0`      | Add later when setting up HTTPS            |
 
-Do not allow public inbound access to PostgreSQL `5432` or Redis `6379`; Docker will keep both internal. Allocate and associate an Elastic IP if you use a domain, then create DNS records for the public site and API pointing to that address. The examples below use `example.com`, `www.example.com`, `api.example.com`, and `admin.example.com`; replace them with your domain names. You can use one domain with paths if you already have an Nginx layout, but separate subdomains are easier to follow.
+Do not allow public inbound access to PostgreSQL `5432` or Redis `6379`; Docker binds them to the EC2 loopback interface only. For the first deployment, use the EC2 public IPv4 address; you do not need the Namecheap domain yet. Allocate and associate an Elastic IP so the address stays stable across instance stop/start. Later, point Namecheap DNS records to that Elastic IP and add HTTPS. The steps below use the same IP origin for the client, admin, and API during this initial phase.
 
 ## 2. Install Docker, Git, Node.js, PM2, and Nginx
 
@@ -177,11 +177,10 @@ JWT_REFRESH_SECRET=CHANGE_ME_SECOND_DIFFERENT_RANDOM_SECRET
 JWT_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=30d
 
-# Public HTTPS origins; no trailing slash. Checkout return URLs use this list.
-FRONTEND_URLS=https://example.com,https://www.example.com,https://admin.example.com
-# Direct browser calls from the static sites use CORS; local Vite proxy doesn't need localhost here.
-CORS_ORIGINS=https://example.com,https://www.example.com,https://admin.example.com
-API_PUBLIC_URL=https://api.example.com
+# Replace 203.0.113.10 with the EC2 Elastic IP. All apps share one origin for initial IP testing.
+FRONTEND_URLS=http://203.0.113.10
+CORS_ORIGINS=
+API_PUBLIC_URL=http://203.0.113.10
 DOCS_TOKEN=CHANGE_ME_LONG_RANDOM_DOCS_PASSWORD
 
 # S3 uses the EC2 instance profile. Keep the bucket private.
@@ -258,13 +257,13 @@ The output should include `libx264`. The Dockerfile is also built here to valida
 
 ## 8. Build the frontend
 
-The frontend has two apps, the public client and admin dashboard. They are served as separate Vite Preview processes by PM2 and Nginx. The client uses the root path; admin is built for `/admin/`.
+The frontend has two apps, the public client and admin dashboard. They are served as separate Vite Preview processes by PM2 and Nginx. The client uses `/`; admin uses `/admin/`. During IP-only testing, leave `VITE_API_BASE_URL` empty so both apps request `/v1` from the same origin; Nginx will forward those requests to the API.
 
 ```bash
 cd /var/www/joe-wilson-portfolio-main
 npm ci
-VITE_API_BASE_URL=https://api.example.com BASE_PATH=/ npm run build:client
-VITE_API_BASE_URL=https://api.example.com BASE_PATH=/admin/ npm run build:admin
+BASE_PATH=/ npm run build:client
+BASE_PATH=/admin/ npm run build:admin
 ```
 
 Check that output folders exist:
@@ -300,26 +299,20 @@ pm2 startup
 
 PM2 prints a `sudo env PATH=... pm2 startup ...` command. Copy and run the exact command it prints, then run `pm2 save` again.
 
-## 10. Configure Nginx and HTTPS
+## 10. Configure Nginx for the public IP
 
-Create `/etc/nginx/sites-available/joe-wilson` with `sudo nano /etc/nginx/sites-available/joe-wilson` and paste this. Replace the domains:
+Create `/etc/nginx/sites-available/joe-wilson` with `sudo nano /etc/nginx/sites-available/joe-wilson` and paste this. Replace `203.0.113.10` with the EC2 Elastic IP. Client, admin, and API use one origin, so browser CORS is not needed for this initial setup.
 
 ```nginx
 server {
     listen 80;
-    server_name example.com www.example.com;
-    location / { proxy_pass http://127.0.0.1:4173; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
-}
-server {
-    listen 80;
-    server_name admin.example.com;
-    location / { proxy_pass http://127.0.0.1:4174; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
-}
-server {
-    listen 80;
-    server_name api.example.com;
+    server_name 203.0.113.10;
     client_max_body_size 100m;
-    location / { proxy_pass http://127.0.0.1:3001; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
+    location /v1/ { proxy_pass http://127.0.0.1:3001/v1/; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
+    location = /health { proxy_pass http://127.0.0.1:3001/health; }
+    location = /ready { proxy_pass http://127.0.0.1:3001/ready; }
+    location /admin/ { proxy_pass http://127.0.0.1:4174/admin/; proxy_set_header Host $host; }
+    location / { proxy_pass http://127.0.0.1:4173; proxy_set_header Host $host; }
 }
 ```
 
@@ -331,11 +324,13 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Install a Let's Encrypt certificate after DNS resolves to the EC2 Elastic IP:
+Test the site at `http://203.0.113.10` and `http://203.0.113.10/admin/`. Wait to test live Stripe payments and password reset links until you add the domain and HTTPS. To switch to Namecheap later, point the root domain's DNS A record at the EC2 Elastic IP; optionally point `www` there too. Update `.env` with the HTTPS origins in `FRONTEND_URLS` and set `API_PUBLIC_URL=https://example.com`. Keep `CORS_ORIGINS` empty if client, admin, and API are all served from that same host. Update Nginx `server_name` to `example.com www.example.com`, install the certificate, rebuild the frontends with the same-origin commands, and reload Nginx/PM2.
+
+After domain DNS points at the Elastic IP, install a Let's Encrypt certificate:
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d example.com -d www.example.com -d admin.example.com -d api.example.com
+sudo certbot --nginx -d example.com -d www.example.com
 ```
 
 Certbot adjusts Nginx to serve HTTPS and renews certificates automatically. Confirm ports 80 and 443 are open in the EC2 security group.
@@ -343,15 +338,27 @@ Certbot adjusts Nginx to serve HTTPS and renews certificates automatically. Conf
 ## 11. Verify deployment
 
 ```bash
-curl -i https://api.example.com/health
-curl -i https://api.example.com/ready
+curl -i http://203.0.113.10/health
+curl -i http://203.0.113.10/ready
 pm2 status
 docker compose ps
 ```
 
-Open `https://example.com`, `https://admin.example.com`, and `https://api.example.com/health`. The `/ready` endpoint should return ready when PostgreSQL and Redis are reachable. Use `pm2 logs mr-wilson-api`, `pm2 logs mr-wilson-video-worker`, or `pm2 logs mr-wilson-email-worker` if needed. The public API docs are at `/docs` only when `DOCS_TOKEN` is set.
+Open `http://203.0.113.10`, `http://203.0.113.10/admin/`, and `http://203.0.113.10/health`. The `/ready` endpoint should return ready when PostgreSQL and Redis are reachable. Use `pm2 logs mr-wilson-api`, `pm2 logs mr-wilson-video-worker`, or `pm2 logs mr-wilson-email-worker` if needed. The public API docs are at `/docs` only when `DOCS_TOKEN` is set.
 
-After the deployment works, create the production owner account from the API checkout using the project's owner creation script and credentials you enter interactively or securely in the shell environment. Do not seed demo users into production.
+After the deployment works, create the production admin/owner account from the API checkout. The script connects using `DATABASE_URL` from `.env`, hashes the password, creates the account with the `owner` role, and refuses to overwrite an existing account. Run it as `ubuntu` and enter the password at the hidden prompt:
+
+```bash
+cd /var/www/joe-wilson-api
+read -r -p "Admin email: " OWNER_EMAIL
+read -r -s -p "Admin password (12+ characters): " OWNER_PASSWORD
+echo
+export OWNER_EMAIL OWNER_PASSWORD
+npm run owner:create
+unset OWNER_EMAIL OWNER_PASSWORD
+```
+
+Use a unique strong password with at least 12 characters. You can run this once after the first successful migration and before signing in to the admin dashboard. Do not run `npm run db:seed` in production; that command is for local/demo data.
 
 ## 12. Deploy updates from GitHub
 
@@ -361,7 +368,7 @@ After pushing changes to GitHub, update the server:
 cd /var/www/joe-wilson-api && git pull --ff-only
 cd /var/www/joe-wilson-portfolio-main && git pull --ff-only
 cd /var/www/joe-wilson-api && npm ci && npx prisma generate && npm run db:deploy && npm run build
-cd /var/www/joe-wilson-portfolio-main && npm ci && VITE_API_BASE_URL=https://api.example.com BASE_PATH=/ npm run build:client && VITE_API_BASE_URL=https://api.example.com BASE_PATH=/admin/ npm run build:admin
+cd /var/www/joe-wilson-portfolio-main && npm ci && BASE_PATH=/ npm run build:client && BASE_PATH=/admin/ npm run build:admin
 cd /var/www/joe-wilson-api && pm2 reload ecosystem.config.cjs --update-env && pm2 save
 ```
 
