@@ -88,7 +88,26 @@ pm2 --version
 ```
 
 3. Attach the role as an **instance profile** to EC2. The AWS SDK in this project automatically gets credentials from the instance profile when `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are empty.
-4. If browsers upload directly to S3 using signed URLs, configure the bucket CORS to allow your website/admin origins and the methods/headers used by the app (`PUT`, `GET`, `HEAD`, `OPTIONS`; `Content-Type`, `Authorization`, and range headers). CORS does not make the bucket public.
+4. If browsers upload directly to S3 using signed URLs, configure bucket CORS. In **S3 → bucket → Permissions → Cross-origin resource sharing (CORS) → Edit**, use this policy and replace the IP with the EC2 Elastic IP. When adding the domain, add its exact HTTPS origins to `AllowedOrigins` too:
+
+```json
+[
+  {
+    "AllowedOrigins": [
+      "http://203.0.113.10",
+      "https://joewilsonbass.com",
+      "https://www.joewilsonbass.com",
+      "https://admin.joewilsonbass.com"
+    ],
+    "AllowedMethods": ["GET", "HEAD", "PUT"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag", "Accept-Ranges", "Content-Length", "Content-Range"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+The multipart upload uses signed `PUT` requests from the browser; the API handles multipart creation and completion. CORS does not make the bucket public. Keep **Block all public access** enabled.
 
 For public website images, choose a delivery URL separately and set `S3_PUBLIC_BASE_URL` to it. Ensure it serves only the bucket's `public/` prefix. Private resources and `transcoded/` video files must remain private.
 
@@ -193,10 +212,10 @@ JWT_REFRESH_SECRET=CHANGE_ME_SECOND_DIFFERENT_RANDOM_SECRET
 JWT_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=30d
 
-# Replace 203.0.113.10 with the EC2 Elastic IP. All apps share one origin for initial IP testing.
-FRONTEND_URLS=http://203.0.113.10
-CORS_ORIGINS=
-API_PUBLIC_URL=http://203.0.113.10
+# Main site, www alias, and separate admin hostname. API is served at /v1 on both hosts.
+FRONTEND_URLS=https://joewilsonbass.com,https://www.joewilsonbass.com,https://admin.joewilsonbass.com
+CORS_ORIGINS=https://joewilsonbass.com,https://www.joewilsonbass.com,https://admin.joewilsonbass.com
+API_PUBLIC_URL=https://joewilsonbass.com
 DOCS_TOKEN=CHANGE_ME_LONG_RANDOM_DOCS_PASSWORD
 
 # S3 uses the EC2 instance profile. Keep the bucket private.
@@ -273,15 +292,16 @@ The output should include `libx264`. The Dockerfile is also built here to valida
 
 ## 8. Build the frontend
 
-The frontend has two apps, the public client and admin dashboard. They are served as separate Vite Preview processes by PM2 and Nginx. The client uses `/`; admin uses `/admin/`. During IP-only testing, leave `VITE_API_BASE_URL` empty so both apps request `/v1` from the same origin; Nginx will forward those requests to the API.
+The frontend has two apps, the public client and admin dashboard. They are served as separate Vite Preview processes by PM2 and Nginx. The client uses `/` on `joewilsonbass.com`; the admin uses `/` on `admin.joewilsonbass.com`. Leave `VITE_API_BASE_URL` empty so each app requests `/v1` from its own hostname; Nginx forwards those requests to the API.
 
 ```bash
 cd /var/www/joe-wilson-portfolio-main
 npm ci
-npm run build
+BASE_PATH=/ npm run build:client
+BASE_PATH=/ npm run build:admin
 ```
 
-The build script builds both apps using their checked-in Vite base paths: the public client at `/` and admin dashboard at `/admin/`. If either app needs environment values (for example, a separate API origin), create its `.env.production` before building; for the same-origin Nginx setup above, leave `VITE_API_BASE_URL` unset/empty so API calls use `/v1`.
+Both apps are built for `/` because they use separate hostnames. If either app needs environment values (for example, a separate API origin), create its `.env.production` before building; for this same-origin-per-host setup, leave `VITE_API_BASE_URL` unset/empty so API calls use `/v1`.
 
 Check that output folders exist:
 
@@ -327,52 +347,72 @@ pm2 startup
 
 PM2 prints a `sudo env PATH=... pm2 startup ...` command. Copy and run the exact command it prints, then run `pm2 save` again.
 
-## 10. Configure Nginx for the public IP
+## 10. Configure DNS, Nginx, and HTTPS for the domains
 
-Create `/etc/nginx/sites-available/joe-wilson` with `sudo nano /etc/nginx/sites-available/joe-wilson` and paste this. Replace `203.0.113.10` with the EC2 Elastic IP. Client, admin, and API use one origin, so browser CORS is not needed for this initial setup.
+In Namecheap Advanced DNS, create these **A records**, all pointing to the EC2 Elastic IP:
+
+| Type | Host | Value |
+| --- | --- | --- |
+| A Record | `@` | `YOUR_EC2_ELASTIC_IP` |
+| A Record | `www` | `YOUR_EC2_ELASTIC_IP` |
+| A Record | `admin` | `YOUR_EC2_ELASTIC_IP` |
+
+Wait for DNS to resolve before requesting certificates. In the EC2 security group, allow inbound TCP ports 80 and 443. Create `/etc/nginx/sites-available/joe-wilson` with `sudo nano /etc/nginx/sites-available/joe-wilson` and paste:
 
 ```nginx
 server {
     listen 80;
-    server_name 203.0.113.10;
+    listen [::]:80;
+    server_name joewilsonbass.com www.joewilsonbass.com;
     client_max_body_size 100m;
+
     location /v1/ { proxy_pass http://127.0.0.1:3001/v1/; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
     location = /health { proxy_pass http://127.0.0.1:3001/health; }
     location = /ready { proxy_pass http://127.0.0.1:3001/ready; }
-    location /admin/ { proxy_pass http://127.0.0.1:4174/admin/; proxy_set_header Host $host; }
     location / { proxy_pass http://127.0.0.1:4173; proxy_set_header Host $host; }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name admin.joewilsonbass.com;
+    client_max_body_size 100m;
+
+    location /v1/ { proxy_pass http://127.0.0.1:3001/v1/; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
+    location = /health { proxy_pass http://127.0.0.1:3001/health; }
+    location = /ready { proxy_pass http://127.0.0.1:3001/ready; }
+    location / { proxy_pass http://127.0.0.1:4174; proxy_set_header Host $host; }
 }
 ```
 
-Enable and validate it:
+Enable and reload the site:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/joe-wilson /etc/nginx/sites-enabled/joe-wilson
+sudo ln -sfn /etc/nginx/sites-available/joe-wilson /etc/nginx/sites-enabled/joe-wilson
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Test the site at `http://203.0.113.10` and `http://203.0.113.10/admin/`. Wait to test live Stripe payments and password reset links until you add the domain and HTTPS. To switch to Namecheap later, point the root domain's DNS A record at the EC2 Elastic IP; optionally point `www` there too. Update `.env` with the HTTPS origins in `FRONTEND_URLS` and set `API_PUBLIC_URL=https://example.com`. Keep `CORS_ORIGINS` empty if client, admin, and API are all served from that same host. Update Nginx `server_name` to `example.com www.example.com`, install the certificate, rebuild the frontends with the same-origin commands, and reload Nginx/PM2.
-
-After domain DNS points at the Elastic IP, install a Let's Encrypt certificate:
+Issue certificates for all three hostnames (Certbot updates the Nginx configuration for HTTPS and renews automatically):
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d example.com -d www.example.com
+sudo certbot --nginx -d joewilsonbass.com -d www.joewilsonbass.com -d admin.joewilsonbass.com
 ```
 
-Certbot adjusts Nginx to serve HTTPS and renews certificates automatically. Confirm ports 80 and 443 are open in the EC2 security group.
+The public client is at `https://joewilsonbass.com`; the admin dashboard is at `https://admin.joewilsonbass.com`. Nginx serves `/v1` on both hosts and routes it to the same API. Keep `CORS_ORIGINS` and `FRONTEND_URLS` in `.env` aligned with the HTTPS hostnames above, then restart the API so it loads the changes. Add these HTTPS origins to the S3 bucket CORS rule as well for browser uploads; keep Block all public access enabled.
 
 ## 11. Verify deployment
 
 ```bash
-curl -i http://203.0.113.10/health
-curl -i http://203.0.113.10/ready
+curl -i https://joewilsonbass.com/health
+curl -i https://joewilsonbass.com/ready
 pm2 status
 docker compose ps
 ```
 
-Open `http://203.0.113.10`, `http://203.0.113.10/admin/`, and `http://203.0.113.10/health`. The `/ready` endpoint should return ready when PostgreSQL and Redis are reachable. Use `pm2 logs mr-wilson-api`, `pm2 logs mr-wilson-video-worker`, or `pm2 logs mr-wilson-email-worker` if needed. The public API docs are at `/docs` only when `DOCS_TOKEN` is set.
+Open `https://joewilsonbass.com`, `https://admin.joewilsonbass.com`, and `https://joewilsonbass.com/health`. The `/ready` endpoint should return ready when PostgreSQL and Redis are reachable. Use `pm2 logs mr-wilson-api`, `pm2 logs mr-wilson-video-worker`, or `pm2 logs mr-wilson-email-worker` if needed. The public API docs are at `/docs` only when `DOCS_TOKEN` is set.
 
 After the deployment works, create the production admin/owner account from the API checkout. The script connects using `DATABASE_URL` from `.env`, hashes the password, creates the account with the `owner` role, and refuses to overwrite an existing account. Run it as `ubuntu` and enter the password at the hidden prompt:
 
@@ -396,7 +436,7 @@ After pushing changes to GitHub, update the server:
 cd /var/www/joe-wilson-api && git pull --ff-only origin bobbai
 cd /var/www/joe-wilson-portfolio-main && git pull --ff-only origin main
 cd /var/www/joe-wilson-api && npm ci && npx prisma generate && npm run db:deploy && npm run build
-cd /var/www/joe-wilson-portfolio-main && npm ci && npm run build
+cd /var/www/joe-wilson-portfolio-main && npm ci && BASE_PATH=/ npm run build:client && BASE_PATH=/ npm run build:admin
 cd /var/www/joe-wilson-api && pm2 reload ecosystem.config.cjs --update-env && pm2 save
 ```
 

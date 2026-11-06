@@ -54,7 +54,7 @@ module.exports = {
       instances: 1,
       autorestart: true,
       max_memory_restart: "500M",
-      env: { NODE_ENV: "production", BASE_PATH: "/admin/" },
+      env: { NODE_ENV: "production", BASE_PATH: "/" },
       time: true,
     },
   ],
