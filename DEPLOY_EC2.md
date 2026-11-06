@@ -94,23 +94,30 @@ For public website images, choose a delivery URL separately and set `S3_PUBLIC_B
 
 ## 4. Create GitHub deploy keys
 
-Create a separate read-only SSH deploy key for each private repository. Run as `ubuntu`:
+Create separate read-only SSH deploy keys for the API and frontend repositories. GitHub deploy keys are repository-specific, so do not reuse the API key for the frontend. Run as `ubuntu`:
 
 ```bash
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
 ssh-keygen -t ed25519 -C "ec2-joe-wilson-api-deploy" -f ~/.ssh/joe-wilson-api -N ""
-ssh-keygen -t ed25519 -C "ec2-joe-wilson-frontend-deploy" -f ~/.ssh/joe-wilson-frontend -N ""
 ```
 
-Display and copy each `.pub` value into the matching GitHub repository's **Settings → Deploy keys → Add deploy key**. Leave **Allow write access** unchecked.
+Display the public key and add it to that GitHub repository under **Settings → Deploy keys → Add deploy key**. Leave **Allow write access** unchecked. Copy only the `.pub` key to GitHub; keep the private key on EC2.
 
 ```bash
 cat ~/.ssh/joe-wilson-api.pub
+```
+
+For the frontend repository [ferb000/joe-wilson-portfolio-main](https://github.com/ferb000/joe-wilson-portfolio-main), create its own key:
+
+```bash
+ssh-keygen -t ed25519 -C "ec2-joe-wilson-frontend-deploy" -f ~/.ssh/joe-wilson-frontend -N ""
 cat ~/.ssh/joe-wilson-frontend.pub
 ```
 
-Configure SSH to select the correct key. Replace `YOUR_GITHUB_ORG` and repository names:
+In the frontend repository on GitHub, open **Settings → Deploy keys → Add deploy key**, paste the frontend `.pub` key, and leave **Allow write access** unchecked. The repository is currently public, so the frontend key is optional for read-only cloning; adding it gives this deployment a separate credential consistent with the API setup. Never paste or upload either private key.
+
+Configure SSH to use this key for the repository alias:
 
 ```bash
 cat >> ~/.ssh/config <<'EOF'
@@ -119,7 +126,6 @@ Host github-joe-api
   User git
   IdentityFile ~/.ssh/joe-wilson-api
   IdentitiesOnly yes
-
 Host github-joe-frontend
   HostName github.com
   User git
@@ -131,16 +137,26 @@ ssh-keyscan github.com >> ~/.ssh/known_hosts
 chmod 600 ~/.ssh/known_hosts
 ```
 
-Clone both repos (replace the org and repo names with the actual GitHub paths):
+Check GitHub SSH authentication for each key. GitHub may say shell access is unavailable; that is expected:
+
+```bash
+ssh -T github-joe-api
+ssh -T github-joe-frontend
+```
+
+Clone the API repository's `bobbai` branch:
 
 ```bash
 sudo mkdir -p /var/www
 sudo chown ubuntu:ubuntu /var/www
-git clone git@github-joe-api:YOUR_GITHUB_ORG/joe-wilson-api.git /var/www/joe-wilson-api
-git clone git@github-joe-frontend:YOUR_GITHUB_ORG/joe-wilson-portfolio-main.git /var/www/joe-wilson-portfolio-main
+git clone --branch bobbai --single-branch git@github-joe-api:ferb000/joe-wilson-api-1.git /var/www/joe-wilson-api
 ```
 
-The deploy key only grants read access to its repository. To update later, run `git pull` in each checkout and follow the update steps below.
+The API deploy key only grants read access to the API repository. Clone the frontend repository's `main` branch (the branch currently available on GitHub) to the path expected by PM2:
+
+```bash
+git clone --branch main --single-branch git@github-joe-frontend:ferb000/joe-wilson-portfolio-main.git /var/www/joe-wilson-portfolio-main
+```
 
 ## 5. Configure the API environment
 
@@ -262,9 +278,10 @@ The frontend has two apps, the public client and admin dashboard. They are serve
 ```bash
 cd /var/www/joe-wilson-portfolio-main
 npm ci
-BASE_PATH=/ npm run build:client
-BASE_PATH=/admin/ npm run build:admin
+npm run build
 ```
+
+The build script builds both apps using their checked-in Vite base paths: the public client at `/` and admin dashboard at `/admin/`. If either app needs environment values (for example, a separate API origin), create its `.env.production` before building; for the same-origin Nginx setup above, leave `VITE_API_BASE_URL` unset/empty so API calls use `/v1`.
 
 Check that output folders exist:
 
@@ -288,7 +305,18 @@ pm2 status
 pm2 logs --lines 100
 ```
 
-The API, video worker, email worker, public UI, and admin UI will run as separate PM2 processes. The transcoder polls the database for queued media and writes private HLS output into S3. It uses local temporary disk while processing. Do not run the PM2 API or workers inside the API Docker container; Docker here is for PostgreSQL and Redis.
+PM2 launches the Vite CLI directly from the frontend workspace packages and sets explicit loopback hosts and ports. This avoids passing Vite flags through nested npm workspace scripts, which can turn the port into an invalid positional argument.
+
+If you already started PM2 and the frontend apps are in an unstable restart loop, apply the corrected PM2 definition with:
+
+```bash
+cd /var/www/joe-wilson-api
+pm2 delete mr-wilson-client mr-wilson-admin
+pm2 start ecosystem.config.cjs --only mr-wilson-client,mr-wilson-admin
+pm2 save
+```
+
+The API, video worker, email worker, public UI, and admin UI will run as separate PM2 processes. The transcoder polls the database for queued media and writes private HLS output into S3. It uses local temporary disk while processing. Do not run the PM2 API or workers inside the API Docker container; Docker here is for PostgreSQL and Redis. Redis in the checked-in Compose file requires `REDIS_PASSWORD`; make sure the running container was started from this Compose file and is healthy (`docker compose ps`). The warning that the Redis default user does not require a password means the app is reaching a Redis server that is not requiring the configured password. Confirm `.env` and the Compose service use the same password, then recreate only Redis with `docker compose up -d --force-recreate redis` (this preserves the `redis_data` volume). Check `docker compose ps` shows Redis as healthy; its health check authenticates with the configured password. `REDIS_URL` must contain that same password, URL-encoded if it contains reserved characters. Do not paste passwords into chat or command history.
 
 Save PM2 startup across server reboots:
 
@@ -365,10 +393,10 @@ Use a unique strong password with at least 12 characters. You can run this once 
 After pushing changes to GitHub, update the server:
 
 ```bash
-cd /var/www/joe-wilson-api && git pull --ff-only
-cd /var/www/joe-wilson-portfolio-main && git pull --ff-only
+cd /var/www/joe-wilson-api && git pull --ff-only origin bobbai
+cd /var/www/joe-wilson-portfolio-main && git pull --ff-only origin main
 cd /var/www/joe-wilson-api && npm ci && npx prisma generate && npm run db:deploy && npm run build
-cd /var/www/joe-wilson-portfolio-main && npm ci && BASE_PATH=/ npm run build:client && BASE_PATH=/admin/ npm run build:admin
+cd /var/www/joe-wilson-portfolio-main && npm ci && npm run build
 cd /var/www/joe-wilson-api && pm2 reload ecosystem.config.cjs --update-env && pm2 save
 ```
 
