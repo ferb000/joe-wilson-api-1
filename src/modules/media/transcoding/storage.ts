@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { Readable, Transform } from 'stream';
 import { DeleteObjectsCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3';
-import { s3 } from '../../../config/s3';
+import { storage as s3 } from '../../../config/s3';
 import { env } from '../../../config/env';
 import { outputFiles, TranscodeError } from './ffmpeg';
 

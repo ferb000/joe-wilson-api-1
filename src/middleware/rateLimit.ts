@@ -1,8 +1,8 @@
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
-import { redis } from '../config/redis';
+import { redis, redisEnabled } from '../config/redis';
 function limiter(prefix: string, limit: number) {
-  return rateLimit({ store: new RedisStore({ prefix, sendCommand: (...args: string[]) => redis.call(args[0], ...args.slice(1)) as Promise<any> }), windowMs: 15 * 60 * 1000, limit, standardHeaders: 'draft-7', legacyHeaders: false, message: { success: false, error: 'Too many requests. Please try again later.' } });
+  return rateLimit({ store: redisEnabled ? new RedisStore({ prefix, sendCommand: (...args: string[]) => redis.call(args[0], ...args.slice(1)) as Promise<any> }) : undefined, windowMs: 15 * 60 * 1000, limit, standardHeaders: 'draft-7', legacyHeaders: false, message: { success: false, error: 'Too many requests. Please try again later.' } });
 }
 export const globalLimiter = limiter('rate:global:', 300);
 export const authLimiter = limiter('rate:auth:', 10);

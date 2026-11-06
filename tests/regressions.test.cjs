@@ -1,3 +1,4 @@
+process.env.STORAGE_DRIVER = 's3';
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -377,7 +378,7 @@ test('application readiness reports dependency failures and inquiry routes valid
   const appPath = require.resolve('../dist/app');
   const previousRedis = require.cache[redisPath], previousRate = require.cache[ratePath];
   let redisReady = true;
-  require.cache[redisPath] = { id: redisPath, filename: redisPath, loaded: true, exports: { redis: { ping: async () => { if (!redisReady) throw new Error('Unavailable'); return 'PONG'; } } } };
+  require.cache[redisPath] = { id: redisPath, filename: redisPath, loaded: true, exports: { redisEnabled: true, redis: { ping: async () => { if (!redisReady) throw new Error('Unavailable'); return 'PONG'; } } } };
   const pass = (_req, _res, next) => next();
   require.cache[ratePath] = { id: ratePath, filename: ratePath, loaded: true, exports: { globalLimiter: pass, playbackLimiter: pass, authLimiter: pass, contactLimiter: pass } };
   delete require.cache[appPath];
@@ -433,4 +434,14 @@ test('owner course detail includes drafts and serializes recording metadata with
  const controller=require('../dist/modules/masterclasses/admin.masterclasses.controller');let query;
  mock(t,prisma.masterclass,'findUnique',async input=>{query=input;return {id:'draft',isPublished:false,sessions:[{id:'lesson',recording:{id:'media',filename:'lesson.mp4',transcode:{status:'queued'}}}],_count:{sessions:1,enrollments:2}};});
  const res=response();await controller.getMasterclass({params:{id:'draft'}},res);assert.deepEqual(query.where,{id:'draft'});assert.equal(res.body.data.enrollmentsCount,2);assert.equal(res.body.data.sessions[0].recording.transcode.status,'queued');assert.doesNotThrow(()=>JSON.stringify(res.body));
+});
+
+
+test('development emails log full reset links and never call the provider or outbox',async t=>{
+ const {env}=require('../dist/config/env');const email=require('../dist/utils/email');const logs=[];
+ mock(t,env,'NODE_ENV','development');mock(t,env,'RESEND_API_KEY','');mock(t,console,'info',(...args)=>logs.push(args.join(' ')));
+ mock(t,prisma.emailOutbox,'create',async()=>assert.fail('Development email queued'));
+ await email.sendEmail('dev@example.test','Code','Code: 123456',{emails:{send:async()=>assert.fail('Development email sent')}});
+ await email.sendPasswordResetEmail('dev@example.test','local-reset-code');
+ assert.ok(logs.some(log=>log.includes('Code: 123456')));assert.ok(logs.some(log=>log.includes('/reset-password?token=local-reset-code')));assert.ok(logs.every(log=>log.includes('not sent')));
 });

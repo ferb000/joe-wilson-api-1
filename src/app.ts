@@ -1,3 +1,5 @@
+import localFilesRoutes from './modules/media/local.files.routes';
+import { localStorageEnabled } from './modules/media/local.storage';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,7 +9,7 @@ import timeout from 'connect-timeout';
 import { randomUUID } from 'crypto';
 import { env } from './config/env';
 import { prisma } from './config/database';
-import { redis } from './config/redis';
+import { redis, redisEnabled } from './config/redis';
 import { swaggerSpec } from './config/swagger';
 import { errorHandler } from './middleware/errorHandler';
 import { globalLimiter, playbackLimiter } from './middleware/rateLimit';
@@ -36,14 +38,15 @@ import resourceRoutes from './modules/resources/resources.routes';
 import userRoutes from './modules/users/users.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 const app = express();
+const corsOrigins = env.CORS_ORIGINS ? env.CORS_ORIGINS.split(',').map(origin => origin.trim()) : [];
 app.set('trust proxy', 1);
 app.use((req, res, next) => { req.id = randomUUID(); res.setHeader('X-Request-ID', req.id); next(); });
 app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], imgSrc: ["'self'", 'data:', 'https:'], scriptSrc: ["'self'", "'unsafe-inline'"] } } }) as express.RequestHandler);
-app.use(cors({ origin: env.FRONTEND_URLS.split(',').map(o => o.trim()), credentials: true }));
+app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(httpLogger as unknown as express.RequestHandler);
 app.get('/health', (_req, res) => res.json({ success: true, status: 'ok' }));
 app.get('/ready', asyncHandler(async (_req, res) => {
-  try { await withDeadline(Promise.all([prisma.$queryRaw`SELECT 1`, redis.ping()]), 2000); res.json({ success: true, status: 'ready' }); }
+  try { await withDeadline(Promise.all([prisma.$queryRaw`SELECT 1`, ...(redisEnabled ? [redis.ping()] : [])]), 2000); res.json({ success: true, status: 'ready' }); }
   catch { res.status(503).json({ success: false, status: 'not_ready' }); }
 }));
 app.get('/', (_req, res) => res.json({ success: true, message: 'JW API is running' }));
@@ -54,6 +57,7 @@ app.use('/v1/payments/webhook', express.raw({ type: 'application/json', limit: '
 app.use((req, res, next) => req.path === '/v1/payments/webhook' ? next() : req.path.startsWith('/v1/playback/') ? playbackLimiter(req, res, next) : globalLimiter(req, res, next));
 app.use(compression());
 app.use((req, res, next) => timeout(req.path === '/v1/admin/media/upload' || req.path.endsWith('/complete') ? '120s' : '30s')(req, res, next));
+if (localStorageEnabled) app.use('/v1/local-files', localFilesRoutes);
 app.use(express.json({ limit: '1mb' }) as express.RequestHandler);
 app.use(express.urlencoded({ extended: false, limit: '1mb' }) as express.RequestHandler);
 app.use((req, _res, next) => { if (!(req as express.Request & { timedout?: boolean }).timedout) next(); });

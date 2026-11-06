@@ -1,5 +1,36 @@
 # Mr. Wilson Platform — Backend API
 
+## Local development (Windows, installed PostgreSQL, no Docker)
+
+Run from this API repository. Local settings are in the ignored .env.local file; both UI apps have their own ignored .env.local pointing at localhost:3001. The local launcher explicitly loads these settings so deployed credentials in .env are not used. UI_DIRECTORY selects the frontend workspace (default: the sibling joe-wilson-portfolio-main/joe-wilson-portfolio-main directory).
+
+```powershell
+npm ci
+npm run local:db
+npm run local:seed
+npm run local:accounts
+npm run dev:local
+```
+
+Install frontend dependencies once with npm ci in the frontend workspace before launching. The database command creates only joe_wilson_dev and applies migrations without resetting data; it requires a local PostgreSQL login that can create a database. The seed is repeatable and adds an owner, an enrolled member, a sample course/session and service. It does not make a real charge. Existing seeded account passwords are not overwritten. local:accounts prints the credentials from .env.local; keep that file private.
+
+- Public UI: http://localhost:3000
+- Admin UI: http://localhost:5174 (sign in as the seeded owner)
+- API: http://localhost:3001; readiness: /ready; API docs: /docs
+
+Use Ctrl+C in the launcher terminal to stop the API, both UIs and the local video worker. Ports are fixed so a conflict is reported instead of silently moving the UI onto an unapproved origin.
+
+Development emails are printed in full in the API terminal, including recipients, content, reset links and any codes in email bodies. No email provider key or email worker is required, and development mode never sends real email, even when a provider key is present. Password reset generates the usual expiring token and stores its hash; open the logged reset link to finish the flow. There is currently no separate OTP/verification-code flow. Passwords, access tokens and refresh tokens stay redacted from HTTP logs.
+
+Redis is optional in development: REDIS_ENABLED=false uses per-process in-memory rate limits and database-only readiness. Set REDIS_ENABLED=true to test a locally installed Redis and the real queue worker. Production always requires Redis and uses the durable email outbox/provider delivery; development console delivery is never enabled in production.
+
+Local uploads and private HLS playback now work without AWS. Set STORAGE_DRIVER=local and LOCAL_STORAGE_DIRECTORY=.local-storage in .env.local. Local files, metadata and multipart staging stay under that ignored directory; it is never exposed as a static folder. Public images have public URLs; private documents/audio use expiring signed URLs, and HLS keeps the enrollment, attachment and token-version checks before granting access. Private URLs remain bearer links until they expire, just like S3 presigned URLs. The UI uses the same upload, multipart, resource and playback APIs for either driver. dev:local starts the FFmpeg worker automatically with the local driver; local:video runs the worker separately if needed. Configure FFMPEG_PATH and FFPROBE_PATH with installed binaries. Production requires STORAGE_DRIVER=s3; local storage is rejected outside development. Stripe checkout still needs Stripe test keys and webhook delivery, while the seeded member can test course access without checkout. No Docker services are started.
+
+## Free Render deployment
+
+The API has a Render Blueprint in `render.yaml`. It uses a free Render Node service and external PostgreSQL and Redis providers. Follow [the Render deployment guide](docs/RENDER_FREE_DEPLOYMENT.md) to deploy the API and connect the separately hosted frontend.
+
+
 This is the backend for the Mr. Wilson music artist and masterclass platform. I built this as a REST API that serves three different surfaces — the public website, the member portal where students access their courses, and the admin dashboard where Joseph manages everything.
 
 It took a while to figure out the right structure for this but I eventually settled on a module-based approach where each feature lives in its own folder with its own routes, controller, and logic. Makes it a lot easier to find things and add new features without breaking what already works.

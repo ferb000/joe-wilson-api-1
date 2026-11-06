@@ -1,9 +1,9 @@
 import { Queue } from 'bullmq';
-import { redis } from '../config/redis';
+import { redis, redisEnabled } from '../config/redis';
 
 // Uses the shared Redis instance from config/redis.ts (reads REDIS_URL from env).
 // Previously this was hardcoded to localhost:6379 which silently fails in production.
-export const emailQueue = new Queue('emailQueue', {
+export const emailQueue = redisEnabled ? new Queue('emailQueue', {
   connection: redis,
   defaultJobOptions: {
     attempts: 3,
@@ -14,4 +14,4 @@ export const emailQueue = new Queue('emailQueue', {
     removeOnComplete: { count: 100 },
     removeOnFail: { count: 500 },
   },
-});
+}) : null;

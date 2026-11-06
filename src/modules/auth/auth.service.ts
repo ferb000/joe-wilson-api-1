@@ -120,7 +120,7 @@ export async function logout(userId: string) {
 }
 
 export async function forgotPassword(email: string) {
-  if (!env.RESEND_API_KEY) throw new HttpError(503, 'Password reset email is not configured');
+  if (env.NODE_ENV !== 'development' && !env.RESEND_API_KEY) throw new HttpError(503, 'Password reset email is not configured');
   const user = await prisma.user.findUnique({ where: { email } });
   // Always return (no throw) to prevent email enumeration
   if (!user) return;

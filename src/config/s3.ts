@@ -8,3 +8,6 @@ export const s3 = new S3Client({
     accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
   }} : {}),
 });
+
+import { localObjectClient, localStorageEnabled } from '../modules/media/local.storage';
+export const storage = localStorageEnabled ? localObjectClient as unknown as S3Client : s3;

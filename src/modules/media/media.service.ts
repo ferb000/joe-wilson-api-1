@@ -1,3 +1,4 @@
+import { localStorageEnabled } from './local.storage';
 import { FileType, Prisma, MediaLibrary, VideoTranscode } from '@prisma/client';
 import { env } from '../../config/env';
 import { HttpError } from '../../utils/httpError';
@@ -10,6 +11,7 @@ export function fileType(mime: string): FileType {
   return mime.includes('zip') ? FileType.archive : FileType.document;
 }
 export function publicMediaUrl(key: string) {
+  if (localStorageEnabled) return env.API_PUBLIC_URL.replace(/\/$/, '') + '/v1/local-files/public/' + key.replace(/^public\//, '').split('/').map(encodeURIComponent).join('/');
   if (!env.S3_PUBLIC_BASE_URL) throw new HttpError(503, 'Public media delivery is not configured');
   return env.S3_PUBLIC_BASE_URL.replace(/\/$/, '') + '/' + key.split('/').map(encodeURIComponent).join('/');
 }

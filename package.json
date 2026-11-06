@@ -20,7 +20,12 @@
     "test": "npm run build && node --test tests/*.test.cjs",
     "owner:create": "tsx scripts/create-owner.ts",
     "video:worker": "tsx watch src/jobs/transcode.worker.ts",
-    "video:worker:start": "node dist/jobs/transcode.worker.js"
+    "video:worker:start": "node dist/jobs/transcode.worker.js",
+    "dev:local": "node scripts/local-dev.cjs start",
+    "local:db": "node scripts/local-dev.cjs database",
+    "local:seed": "node scripts/local-dev.cjs seed",
+    "local:accounts": "node scripts/local-dev.cjs accounts",
+    "local:video": "node scripts/local-dev.cjs video"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",

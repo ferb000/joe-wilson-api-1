@@ -1,3 +1,4 @@
+import { localStorageEnabled } from '../media/local.storage';
 import { createPlaybackGrant } from '../media/transcoding/playback';
 import { resourceResponse } from '../../utils/mediaResponse';
 import { z } from 'zod';
@@ -38,7 +39,7 @@ export async function getSession(req: AuthRequest, res: Response) {
     where: { userId_sessionId: { userId, sessionId: id } },
   });
 
-  if (session.videoStorageKey && !env.S3_BUCKET) return serverError(res, 'Media storage is not configured');
+  if (session.videoStorageKey && !localStorageEnabled && !env.S3_BUCKET) return serverError(res, 'Media storage is not configured');
   const recording = session.recording || (session.videoStorageKey ? await prisma.mediaLibrary.findUnique({ where: { storageKey: session.videoStorageKey }, include: { transcode: true } }) : null);
   const playback = recording?.fileType === 'video'
     ? await createPlaybackGrant(recording.id, userId, { sessionId: session.id })

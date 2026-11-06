@@ -1,3 +1,4 @@
+import { localStorageEnabled } from '../local.storage';
 import { randomUUID } from 'crypto';
 import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { join, resolve, sep } from 'path';
@@ -17,7 +18,7 @@ export async function claimVideoJob(): Promise<ClaimedJob | null> {
     const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT t.id FROM video_transcodes t JOIN media_library m ON m.id = t."mediaId"
       WHERE NOT m.deleting AND NOT m."isPublic" AND m."fileType" = 'video'
-      AND ((t.status = 'queued' AND t."availableAt" <= NOW()) OR (t.status = 'processing' AND t."lockedUntil" < NOW()))
+      AND ((t.status = 'queued' AND t."availableAt" <= (NOW() AT TIME ZONE 'UTC')) OR (t.status = 'processing' AND t."lockedUntil" < (NOW() AT TIME ZONE 'UTC')))
       ORDER BY t."availableAt" LIMIT 1 FOR UPDATE OF t SKIP LOCKED
     `);
     if (!rows[0]) return null;
@@ -66,7 +67,7 @@ export async function processVideoJob(job: ClaimedJob, shutdownSignal: AbortSign
   }, 15000);
   const timeout = setTimeout(() => abort.abort(), env.VIDEO_TRANSCODE_TIMEOUT_SECONDS * 1000);
   try {
-    if (!env.S3_BUCKET) throw new TranscodeError('STORAGE_NOT_CONFIGURED');
+    if (!localStorageEnabled && !env.S3_BUCKET) throw new TranscodeError('STORAGE_NOT_CONFIGURED');
     root = await mkdtemp(join(tmpdir(), 'wilson-transcode-'));
     output = join(root, 'output');
     await mkdir(output);

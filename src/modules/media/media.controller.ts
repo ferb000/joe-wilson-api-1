@@ -1,10 +1,12 @@
+import { localStorageEnabled } from './local.storage';
+import { localFileUrl } from './local.files.routes';
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, ListPartsCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand, Part } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { z } from 'zod';
 import { Prisma, TranscodeStatus } from '@prisma/client';
-import { s3 } from '../../config/s3';
+import { storage as s3 } from '../../config/s3';
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { AuthRequest } from '../../middleware/authenticate';
@@ -16,8 +18,8 @@ import { deleteTranscodePrefix } from './transcoding/storage';
 import { logger } from '../../config/logger';
 export const PART_SIZE = 10 * 1024 * 1024;
 export const uploadSchema = z.object({ filename: z.string().min(1).max(255), mimeType: z.string().refine(m => allowedMimeTypes.includes(m), 'Unsupported file type'), sizeBytes: z.number().int().positive().max(env.S3_MAX_UPLOAD_BYTES), isPublic: z.boolean().default(false) }).strict().refine(d => !d.isPublic || d.mimeType.startsWith('image/'), 'Only images can be public');
-function bucket() { if (!env.S3_BUCKET) throw new HttpError(503, 'File storage is not configured'); return env.S3_BUCKET; }
-function key(filename: string, isPublic: boolean) { if (isPublic && !env.S3_PUBLIC_BASE_URL) throw new HttpError(503, 'Public media delivery is not configured'); return (isPublic ? 'public/' : 'media/') + randomUUID() + '/' + filename.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase(); }
+function bucket() { if (localStorageEnabled) return 'local'; if (!env.S3_BUCKET) throw new HttpError(503, 'File storage is not configured'); return env.S3_BUCKET; }
+function key(filename: string, isPublic: boolean) { if (isPublic && !localStorageEnabled && !env.S3_PUBLIC_BASE_URL) throw new HttpError(503, 'Public media delivery is not configured'); return (isPublic ? 'public/' : 'media/') + randomUUID() + '/' + filename.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase(); }
 export async function listMedia(req: Request, res: Response) {
   const params = getPaginationParams(req.query);
   const includeDeleting = z.enum(['true','false']).optional().parse(req.query.includeDeleting) === 'true';
@@ -56,7 +58,7 @@ export async function uploadPart(req: AuthRequest, res: Response) {
   const upload = await pendingUpload(req);
   if (upload.status !== 'uploading') throw new HttpError(409, 'Upload is being finalized');
   const { partNumber } = z.object({ partNumber: z.number().int().min(1).max(Math.ceil(Number(upload.sizeBytes) / PART_SIZE)) }).strict().parse(req.body);
-  const url = await getSignedUrl(s3, new UploadPartCommand({ Bucket: bucket(), Key: upload.storageKey, UploadId: upload.uploadId, PartNumber: partNumber }), { expiresIn: 900 });
+  const url = localStorageEnabled ? localFileUrl(upload.storageKey, 900, { uploadId: upload.uploadId, partNumber }) : await getSignedUrl(s3, new UploadPartCommand({ Bucket: bucket(), Key: upload.storageKey, UploadId: upload.uploadId, PartNumber: partNumber }), { expiresIn: 900 });
   return ok(res, { url, expiresIn: 900 });
 }
 export function verifyUploadParts(parts: Part[], expectedSize: number) {

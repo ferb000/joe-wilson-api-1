@@ -1,6 +1,14 @@
 # Custom video transcoding and protected S3 playback
 
-Videos use our FFmpeg worker and a private S3 bucket. Bunny Stream and Mux are not used. FFmpeg is software we run ourselves; worker compute, S3 storage/requests, and video delivery still have costs.
+Production videos use our FFmpeg worker and a private S3 bucket. Bunny Stream and Mux are not used. FFmpeg is software we run ourselves; worker compute, S3 storage/requests, and video delivery still have costs.
+
+## Local development
+
+Set STORAGE_DRIVER=local and LOCAL_STORAGE_DIRECTORY=.local-storage in the API .env.local. npm run dev:local starts the API, both UI apps and the FFmpeg worker. Upload originals through the existing admin media library; multipart staging, source files and transcoded outputs stay under .local-storage, which is ignored by Git. No AWS, Redis or Docker service is needed for local media. FFmpeg and ffprobe must be installed or configured through FFMPEG_PATH and FFPROBE_PATH.
+
+Public images use the local public-file route. Private files use signed expiring links, and video manifests/segments retain the existing enrollment, token-version and attachment checks. Local storage is rejected outside development. Changing drivers does not copy existing files between disk and S3.
+
+The production flow is:
 
 ```mermaid
 flowchart LR
@@ -18,7 +26,7 @@ flowchart LR
 ## Deploy
 
 1. Back up the database and apply migrations with `npm run db:deploy`. The new migration queues existing private videos in the media library. It does not copy, overwrite, or delete their originals. Unregistered S3 recordings must first be imported into the library.
-2. Configure the API's public base URL, e.g. `API_PUBLIC_URL=https://api.example.com`. This must point at this API, not the frontend or bucket. Configure `FRONTEND_URLS` for browser CORS.
+2. Configure the API's public base URL, e.g. `API_PUBLIC_URL=https://api.example.com`. This must point at this API, not the frontend or bucket. Set `CORS_ORIGINS` to browser origins that call the API directly; `FRONTEND_URLS` separately allowlists payment return and email-link destinations.
 3. Configure `S3_BUCKET`, `S3_REGION`, and an IAM role or AWS credentials. Keep S3 Block Public Access enabled for source and `transcoded/` objects. Any CDN for public images must serve only the `public/` prefix.
 4. Build the application, then run the API and a **separate video worker** using the same environment and database:
 

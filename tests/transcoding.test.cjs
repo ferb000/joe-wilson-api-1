@@ -1,3 +1,4 @@
+process.env.STORAGE_DRIVER = 's3';
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -246,7 +247,7 @@ test('lost leases stop processing before reading source or publishing', async t 
 
 test('database job claiming uses row locks and a unique renewable lease', async t => {
   mock(t, prisma, '$transaction', async fn => fn(prisma));
-  mock(t, prisma, '$queryRaw', async query => { assert.ok(query.sql.includes('SKIP LOCKED')); return [{ id: 'job' }]; });
+  mock(t, prisma, '$queryRaw', async query => { assert.ok(query.sql.includes('SKIP LOCKED')); assert.equal((query.sql.match(/AT TIME ZONE 'UTC'/g) || []).length, 2); return [{ id: 'job' }]; });
   mock(t, prisma.videoTranscode, 'findUniqueOrThrow', async () => ({ id: 'job', attempts: 0 }));
   mock(t, prisma.videoTranscode, 'update', async args => {
     assert.equal(args.data.status, 'processing');

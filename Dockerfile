@@ -6,7 +6,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci && npm install --no-save prisma@5.22.0
 
 COPY prisma ./prisma
 RUN npx prisma generate
@@ -30,9 +30,10 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY prisma ./prisma
 
-# ✅ copy start script
 COPY start.sh ./start.sh
 RUN chmod +x ./start.sh
 
@@ -41,4 +42,4 @@ ENV PORT=3001
 EXPOSE 3001
 
 # ✅ ONLY ONE CMD
-CMD ["node","dist/server.js"]
+CMD ["./start.sh"]

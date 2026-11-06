@@ -1,10 +1,11 @@
+import { localStorageEnabled } from '../local.storage';
 import jwt from 'jsonwebtoken';
 import { posix } from 'path';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { Request, Response, Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../../config/database';
-import { s3 } from '../../../config/s3';
+import { storage as s3 } from '../../../config/s3';
 import { env } from '../../../config/env';
 import { hasActiveAccess } from '../../../utils/access';
 import { HttpError } from '../../../utils/httpError';
@@ -100,7 +101,7 @@ export async function servePlaybackAsset(req: Request, res: Response) {
   if (!/^transcoded\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/$/.test(prefix)) throw new HttpError(502, 'Invalid video output');
   const key = prefix + asset;
   if (asset.endsWith('.m3u8')) {
-    if (!env.S3_BUCKET) throw new HttpError(503, 'Media storage is not configured');
+    if (!localStorageEnabled && !env.S3_BUCKET) throw new HttpError(503, 'Media storage is not configured');
     const object = await s3.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
     if (!object.Body || (object.ContentLength ?? 0) > 1024 * 1024) throw new HttpError(502, 'Invalid video playlist');
     // Bound actual bytes as well as the optional object metadata.

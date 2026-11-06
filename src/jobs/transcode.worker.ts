@@ -1,3 +1,4 @@
+import { localStorageEnabled } from '../modules/media/local.storage';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
@@ -11,7 +12,7 @@ process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
 
 async function main() {
-  if (!env.S3_BUCKET) throw new Error('S3_BUCKET is required by the video worker');
+  if (!localStorageEnabled && !env.S3_BUCKET) throw new Error('S3_BUCKET is required by the video worker');
   // Fail at startup if the deployment omitted the transcoder or encoder.
   await runProcess(env.FFMPEG_PATH, ['-version'], shutdown.signal, 10000);
   await runProcess(env.FFPROBE_PATH, ['-version'], shutdown.signal, 10000);
@@ -28,4 +29,4 @@ async function main() {
   }
 }
 
-main().catch(() => { logger.error('Video worker failed; check database, S3 and FFmpeg configuration'); process.exitCode = 1; }).finally(() => prisma.$disconnect());
+main().catch(() => { logger.error('Video worker failed; check database, storage and FFmpeg configuration'); process.exitCode = 1; }).finally(() => prisma.$disconnect());
