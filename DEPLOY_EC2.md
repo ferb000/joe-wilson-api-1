@@ -369,7 +369,7 @@ server {
     location /v1/ { proxy_pass http://127.0.0.1:3001/v1/; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
     location = /health { proxy_pass http://127.0.0.1:3001/health; }
     location = /ready { proxy_pass http://127.0.0.1:3001/ready; }
-    location / { proxy_pass http://127.0.0.1:4173; proxy_set_header Host $host; }
+    location / { proxy_pass http://127.0.0.1:4173; proxy_set_header Host 127.0.0.1; }
 }
 
 server {
@@ -381,7 +381,7 @@ server {
     location /v1/ { proxy_pass http://127.0.0.1:3001/v1/; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
     location = /health { proxy_pass http://127.0.0.1:3001/health; }
     location = /ready { proxy_pass http://127.0.0.1:3001/ready; }
-    location / { proxy_pass http://127.0.0.1:4174; proxy_set_header Host $host; }
+    location / { proxy_pass http://127.0.0.1:4174; proxy_set_header Host 127.0.0.1; }
 }
 ```
 
