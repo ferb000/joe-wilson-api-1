@@ -3,8 +3,9 @@ generator client {
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -71,7 +72,6 @@ model User {
   resetPasswordToken   String?
   resetPasswordExpires DateTime?
   refreshTokenHash     String?
-  tokenVersion         Int       @default(0)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -117,9 +117,8 @@ model Session {
   orderIndex      Int
   status          SessionStatus @default(upcoming)
   scheduledAt     DateTime?
-  videoStorageKey String?
-  videoMediaId    String?
-  recording       MediaLibrary? @relation("SessionRecording", fields: [videoMediaId], references: [id], onDelete: Restrict)
+  muxAssetId      String?
+  muxPlaybackId   String?
   durationSeconds Int?
   liveStreamUrl   String?
   createdAt       DateTime      @default(now())
@@ -175,7 +174,6 @@ model Payment {
   userId           String
   masterclassId    String
   gatewayReference String?       @unique
-  checkoutSessionId String?      @unique
   amountCents      Int
   currency         String        @default("usd")
   status           PaymentStatus @default(pending)
@@ -207,10 +205,7 @@ model MediaLibrary {
 
   uploader  User       @relation(fields: [uploadedBy], references: [id])
   resources Resource[]
-  recordings Session[] @relation("SessionRecording")
-  transcode VideoTranscode?
-  deleting Boolean @default(false)
-  isPublic Boolean @default(false)
+  artistVideos ArtistVideo[]
 
   @@map("media_library")
 }
@@ -301,8 +296,6 @@ model Testimonial {
 }
 
 model Event {
-  description String?
-  location String?
   id          String   @id @default(uuid())
   title       String
   venue       String?
@@ -325,64 +318,123 @@ model Setting {
   @@map("settings")
 }
 
-model PaymentWebhookEvent {
-  id String @id
-  type String
-  createdAt DateTime @default(now())
-  @@map("payment_webhook_events")
+// Artists portfolio. Region is derived from the artist's country, preventing
+// contradictory artist region/country combinations.
+model ArtistRegion {
+  id         String          @id @default(uuid())
+  name       String          @unique
+  slug       String          @unique
+  orderIndex Int             @default(0)
+  countries  ArtistCountry[]
+
+  @@map("artist_regions")
 }
 
-model MediaUpload {
-  id String @id @default(uuid())
-  storageKey String @unique
-  uploadId String
-  filename String
-  mimeType String
-  sizeBytes BigInt
-  uploadedBy String
-  isPublic Boolean @default(false)
-  status String @default("uploading")
-  expiresAt DateTime
-  updatedAt DateTime @updatedAt
-  @@index([expiresAt])
-  @@map("media_uploads")
+model ArtistCountry {
+  id         String       @id @default(uuid())
+  name       String       @unique
+  code       String       @unique
+  regionId   String
+  orderIndex Int          @default(0)
+  region     ArtistRegion @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  artists    Artist[]
+
+  @@index([regionId, orderIndex])
+  @@map("artist_countries")
 }
 
-model EmailOutbox {
-  id String @id @default(uuid())
-  to String
-  subject String
-  html String
-  enqueuedAt DateTime?
-  createdAt DateTime @default(now())
-  @@index([enqueuedAt, createdAt])
-  @@map("email_outbox")
+model ArtistGenre {
+  id         String   @id @default(uuid())
+  name       String   @unique
+  slug       String   @unique
+  orderIndex Int      @default(0)
+  artists    Artist[]
+
+  @@map("artist_genres")
 }
 
-enum TranscodeStatus {
-  queued
-  processing
-  ready
-  failed
+model Artist {
+  id           String          @id @default(uuid())
+  name         String
+  slug         String          @unique
+  biography    String?
+  countryId    String
+  genreId      String
+  isPublished  Boolean         @default(false)
+  orderIndex   Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  country      ArtistCountry   @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  genre        ArtistGenre     @relation(fields: [genreId], references: [id], onDelete: Restrict)
+  projects     ArtistProject[]
+
+  @@index([isPublished, orderIndex, id])
+  @@index([countryId, isPublished])
+  @@index([genreId, isPublished])
+  @@map("artists")
 }
 
-model VideoTranscode {
-  id String @id @default(uuid())
-  mediaId String @unique
-  media MediaLibrary @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-  status TranscodeStatus @default(queued)
-  attempts Int @default(0)
-  availableAt DateTime @default(now())
-  lockedUntil DateTime?
-  leaseToken String?
-  outputPrefix String?
-  durationSeconds Float?
-  width Int?
-  height Int?
-  renditions Json?
-  errorCode String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@index([status, availableAt])
-  @@map("video_transcodes")
+model ArtistProject {
+  id           String         @id @default(uuid())
+  artistId     String
+  slug         String
+  title        String
+  description  String?
+  isPublished  Boolean        @default(false)
+  orderIndex   Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  artist       Artist         @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  videos       ArtistVideo[]
+  credits      ArtistCredit[]
+
+  @@unique([artistId, slug])
+  @@index([artistId, isPublished, orderIndex, id])
+  @@map("artist_projects")
+}
+
+model ArtistVideo {
+  id           String            @id @default(uuid())
+  projectId    String
+  title        String?
+  youtubeId    String?
+  source       String            @default("youtube")
+  mediaId      String?
+  customCoverUrl String?
+  isPublished  Boolean           @default(false)
+  orderIndex   Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  project      ArtistProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  media        MediaLibrary?     @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  thumbnails   ArtistThumbnail[]
+
+  @@unique([projectId, youtubeId])
+  @@index([mediaId])
+  @@index([projectId, isPublished, orderIndex, id])
+  @@map("artist_videos")
+}
+
+model ArtistThumbnail {
+  id         String      @id @default(uuid())
+  videoId    String
+  url        String
+  altText    String
+  orderIndex Int         @default(0)
+  video      ArtistVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId, orderIndex, id])
+  @@map("artist_thumbnails")
+}
+
+model ArtistCredit {
+  id         String        @id @default(uuid())
+  projectId  String
+  name       String        @default("Joe Wilson")
+  role       String
+  orderIndex Int           @default(0)
+  project    ArtistProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, orderIndex, id])
+  @@map("artist_credits")
 }

@@ -1,22 +1,21 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { authenticate } from '../../middleware/authenticate';
+import { authenticate, AuthRequest } from '../../middleware/authenticate';
 import { requireAdmin } from '../../middleware/requireAdmin';
-import { asyncHandler } from '../../utils/asyncHandler';
-import { HttpError } from '../../utils/httpError';
-import { allowedMimeTypes } from './media.service';
+import { handle } from '../artists/artists.http';
+import { prisma } from '../../config/database';
+import { forbidden } from '../../utils/response';
 import * as controller from './media.controller';
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: (_req, file, cb) => allowedMimeTypes.includes(file.mimetype) ? cb(null, true) : cb(new HttpError(400, 'Unsupported file type')) });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } });
 const router = Router();
-router.use(authenticate, requireAdmin);
-router.get('/', asyncHandler(controller.listMedia));
-router.post('/upload', upload.single('file'), asyncHandler(controller.uploadMedia));
-router.post('/uploads', asyncHandler(controller.startUpload));
-router.post('/uploads/:id/parts', asyncHandler(controller.uploadPart));
-router.post('/uploads/:id/complete', asyncHandler(controller.completeUpload));
-router.delete('/uploads/:id', asyncHandler(controller.abortUpload));
-router.post('/import', asyncHandler(controller.importMedia));
-router.get('/:id/transcode', asyncHandler(controller.getTranscode));
-router.post('/:id/transcode', asyncHandler(controller.queueTranscode));
-router.delete('/:id', asyncHandler(controller.deleteMedia));
+router.use(authenticate, requireAdmin, handle(async (req: AuthRequest, res, next) => {
+  const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { role: true } });
+  return user?.role === 'owner' ? next() : forbidden(res, 'Admin access required');
+}));
+router.get('/', handle(controller.listMedia, 'media library'));
+router.post('/upload', (req, res, next) => upload.single('file')(req, res, error => {
+  if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, error: error.code === 'LIMIT_FILE_SIZE' ? 'Files must be 50 MB or smaller' : 'Choose one file using the file picker' });
+  next();
+}), handle(controller.uploadMedia, 'media library'));
+router.delete('/:id', handle(controller.deleteMedia, 'media library'));
 export default router;

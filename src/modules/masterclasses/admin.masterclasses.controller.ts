@@ -89,6 +89,12 @@ export async function getMasterclass(req: Request, res: Response) {
   return ok(res, { ...mc, sessionsCount: mc._count.sessions, enrollmentsCount: mc._count.enrollments });
 }
 
+export async function getMasterclass(req: Request, res: Response) {
+  const id = z.string().uuid().parse(req.params.id);
+  const item = await prisma.masterclass.findUnique({ where: { id }, include: { sessions: { orderBy: { orderIndex: 'asc' } } } });
+  return item ? ok(res, item) : notFound(res, 'Masterclass not found');
+}
+
 export async function createMasterclass(req: Request, res: Response) {
   // FIXED: was ...req.body directly — mass assignment vulnerability
   const result = createMasterclassSchema.safeParse(req.body);

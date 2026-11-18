@@ -1,0 +1,98 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
+const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
+const dbUrl = process.env.TEST_DATABASE_URL;
+assert.ok(dbUrl, 'Set TEST_DATABASE_URL to a disposable joe_artists_test database');
+assert.match(new URL(dbUrl).pathname, /^\/joe_artists_test(?:_[a-zA-Z0-9_-]+)?$/);
+process.env.DATABASE_URL = process.env.DIRECT_URL = dbUrl;
+process.env.NODE_ENV = 'development';
+process.env.JWT_SECRET = 'a'.repeat(64); process.env.JWT_REFRESH_SECRET = 'b'.repeat(64);
+process.env.MEDIA_LOCAL_DIR = fs.mkdtempSync('/private/tmp/joe-media-test-');
+process.env.MEDIA_PUBLIC_BASE_URL = 'http://127.0.0.1:55523';
+execFileSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env: process.env, stdio: 'pipe' });
+require('ts-node/register');
+const express = require('express');
+global.prisma = new (require('@prisma/client').PrismaClient)({ log: [] });
+const { prisma } = require('../src/config/database');
+const { signAccessToken } = require('../src/utils/jwt');
+const mediaRouter = require('../src/modules/media/media.routes').default;
+const { publicArtistsRouter, adminArtistsRouter } = require('../src/modules/artists/artists.routes');
+const masterclassRouter = require('../src/modules/masterclasses/admin.masterclasses.routes').default;
+const app = express(); app.use(express.json());
+app.use('/v1/uploads', express.static(process.env.MEDIA_LOCAL_DIR));
+app.use('/v1/admin/media', mediaRouter); app.use('/v1/artists', publicArtistsRouter); app.use('/v1/admin/artists', adminArtistsRouter); app.use('/v1/admin/masterclasses', masterclassRouter);
+app.use((err, _req, res, _next) => res.status(500).json({ success: false, error: err.message }));
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJRsAAAAASUVORK5CYII=', 'base64');
+const mp4 = Buffer.from([0,0,0,24,102,116,121,112,105,115,111,109,0,0,2,0,105,115,111,109,109,112,52,50]);
+test('Media uploads, file-library reuse, uploaded project video and masterclass covers', async t => {
+ const suffix = randomUUID().slice(0,8);
+ const owner = await prisma.user.create({ data: { email: `media-${suffix}@example.com`, passwordHash: 'test-only', firstName: 'Media', lastName: 'Test', role: 'owner' } });
+ const token = signAccessToken({ sub: owner.id, email: owner.email, role: 'owner' });
+ const server = app.listen(55523, '127.0.0.1'); await new Promise(r => server.once('listening',r));
+ const base = process.env.MEDIA_PUBLIC_BASE_URL;
+ let artist, country, region, genre, project, masterclass;
+ t.after(async () => {
+   await new Promise(r => server.close(r));
+   if (artist) await prisma.artist.delete({ where: { id: artist.id } });
+   if (masterclass) await prisma.masterclass.deleteMany({ where: { id: masterclass.id } });
+   await prisma.mediaLibrary.deleteMany({ where: { uploadedBy: owner.id } });
+   if (country) await prisma.artistCountry.delete({ where: { id: country.id } });
+   if (region) await prisma.artistRegion.delete({ where: { id: region.id } });
+   if (genre) await prisma.artistGenre.delete({ where: { id: genre.id } });
+   await prisma.user.delete({ where: { id: owner.id } }); await prisma.$disconnect();
+   fs.rmSync(process.env.MEDIA_LOCAL_DIR, { recursive: true, force: true });
+ });
+ async function request(path, method='GET', data, status=200, auth=token) {
+   const response = await fetch(base+path, { method, headers: { ...(auth && { Authorization: `Bearer ${auth}` }), ...(!(data instanceof FormData) && { 'Content-Type':'application/json' }) }, ...(data !== undefined && { body: data instanceof FormData ? data : JSON.stringify(data) }) });
+   const payload = await response.json(); assert.equal(response.status,status, `${method} ${path}: ${JSON.stringify(payload)}`); return payload.data ?? payload;
+ }
+ async function upload(bytes, mime, name, status=201, auth=token) { const form=new FormData();form.append('file',new Blob([bytes],{type:mime}),name);return request('/v1/admin/media/upload','POST',form,status,auth); }
+ let image, file, video;
+ await t.test('Secure upload validation and safe image/video metadata',async()=>{
+   await upload(png,'image/png','cover.png',401,null);
+   const member=signAccessToken({sub:owner.id,email:owner.email,role:'member'});
+   await upload(png,'image/png','cover.png',403,member);
+   await upload(Buffer.from('<script>bad</script>'),'image/png','fake.png',400);
+   await upload(Buffer.from('bad'),'text/html','file.html',400);
+   await upload(Buffer.alloc(0),'image/png','empty.png',400);
+   const large=Buffer.alloc(10*1024*1024+1);png.copy(large);await upload(large,'image/png','large.png',413);
+   image=await upload(png,'image/png','cover.png');file=await upload(mp4,'video/mp4','clip.mp4');
+   assert.equal(image.fileType,'image');assert.equal(file.fileType,'video');assert.equal(typeof image.sizeBytes,'number');assert.ok(!('storageKey' in image));assert.ok(!('uploadedBy' in image));
+   assert.equal((await fetch(image.url)).status,200);assert.deepEqual(Buffer.from(await(await fetch(image.url)).arrayBuffer()),png);
+   assert.ok((await request('/v1/admin/media?type=image')).some(item=>item.id===image.id));
+   assert.ok(!(await request('/v1/admin/media?type=image')).some(item=>item.id===file.id));
+   await request('/v1/admin/media?type=bad','GET',undefined,400);
+ });
+ await t.test('Uploaded videos and YouTube links coexist, switch sources and protect referenced files',async()=>{
+   region=await prisma.artistRegion.create({data:{name:`Media region ${suffix}`,slug:`media-region-${suffix}`}});
+   country=await prisma.artistCountry.create({data:{name:`Media country ${suffix}`,code:'XY',regionId:region.id}});
+   genre=await prisma.artistGenre.create({data:{name:`Media genre ${suffix}`,slug:`media-genre-${suffix}`}});
+   artist=await request('/v1/admin/artists','POST',{name:'Media Artist',slug:`media-artist-${suffix}`,countryId:country.id,genreId:genre.id,isPublished:true},201);
+   project=await request(`/v1/admin/artists/${artist.id}/projects`,'POST',{title:'File project',isPublished:true},201);
+   const path=`/v1/admin/artists/${artist.id}/projects/${project.id}/videos`;
+   video=await request(path,'POST',{source:'upload',mediaId:file.id,customCoverUrl:image.url,isPublished:true},201);
+   assert.equal(video.source,'upload');assert.equal(video.youtubeId,null);assert.equal(video.videoUrl,file.url);assert.equal(video.thumbnailUrl,image.url);
+   const published=await request(`/v1/artists/${artist.slug}/projects/${project.slug}`);
+   assert.equal(published.videoUrl,file.url);assert.equal(published.youtubeUrl,null);assert.equal(published.videos[0].media.id,file.id);
+   await request('/v1/admin/media/'+file.id,'DELETE',undefined,409);await request('/v1/admin/media/'+image.id,'DELETE',undefined,409);
+   await request(path,'POST',{source:'upload',mediaId:image.id},400);
+   await request(path,'POST',{source:'upload',mediaId:randomUUID()},400);
+   await request(path,'POST',{source:'upload',mediaId:file.id,youtubeUrl:'https://youtu.be/WMbSq-QrBVU'},400);
+   const youtube=await request(path+'/'+video.id,'PATCH',{source:'youtube',youtubeUrl:'https://youtu.be/WMbSq-QrBVU'});
+   assert.equal(youtube.mediaId,null);assert.equal(youtube.youtubeId,'WMbSq-QrBVU');
+   await request(path+'/'+video.id,'PATCH',{source:'upload'},400);
+   await request(path+'/'+video.id,'PATCH',{source:'upload',mediaId:file.id});
+   await request(path+'/'+video.id,'PATCH',{source:'youtube',youtubeUrl:'https://youtu.be/WMbSq-QrBVU',customCoverUrl:null});
+ });
+ await t.test('Masterclass cover upload is saved, returned in list/detail and guarded against deletion',async()=>{
+   masterclass=await request('/v1/admin/masterclasses','POST',{title:'Image picker test',description:'Test cover',coverImageUrl:image.url,priceCents:0,status:'draft',startsAt:'2027-01-01T10:00:00.000Z',endsAt:'2027-01-01T12:00:00.000Z'},201);
+   const detail=await request('/v1/admin/masterclasses/'+masterclass.id);assert.equal(detail.coverImageUrl,image.url);
+   assert.equal((await request('/v1/admin/masterclasses')).find(item=>item.id===masterclass.id).coverImageUrl,image.url);
+   await request('/v1/admin/media/'+image.id,'DELETE',undefined,409);
+   await request('/v1/admin/masterclasses/'+masterclass.id,'PATCH',{coverImageUrl:''});
+   await request('/v1/admin/media/'+image.id,'DELETE');await request('/v1/admin/media/'+file.id,'DELETE');
+   assert.equal((await fetch(file.url)).status,404);
+ });
+});
