@@ -38,6 +38,7 @@ import settingsRoutes from './modules/settings/settings.routes';
 import mediaRoutes from './modules/media/media.routes';
 import userRoutes from './modules/users/users.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
+import { publicArtistsRouter, adminArtistsRouter } from './modules/artists/artists.routes';
 
 const app = express();
 
@@ -77,12 +78,13 @@ app.use((req, res, next) => {
   if (
     req.path.startsWith('/docs') ||
     req.path.startsWith('/swagger-json') ||
-    req.path === '/health'
+    req.path === '/health' ||
+    req.path.startsWith('/v1/uploads/')
   ) {
     return next();
   }
 
-  return timeout('10s')(req, res, next);
+  return timeout(req.path === '/v1/admin/media/upload' ? '120s' : '10s')(req, res, next);
 });
 
 // Prevent execution after timeout
@@ -124,6 +126,11 @@ app.use(
 // ─────────────────────────────────────────────
 // RATE LIMIT
 // ─────────────────────────────────────────────
+// Local development media is served without admin authentication for public covers/video playback.
+if (env.NODE_ENV === 'development' && env.MEDIA_LOCAL_DIR) {
+  app.use('/v1/uploads', express.static(env.MEDIA_LOCAL_DIR, { dotfiles: 'deny', index: false, setHeaders: res => { res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'); res.setHeader('X-Content-Type-Options', 'nosniff'); } }) as express.RequestHandler);
+}
+
 app.use(globalLimiter);
 
 // ─────────────────────────────────────────────
@@ -170,6 +177,7 @@ app.use('/v1/testimonials', testimonialRoutes);
 app.use('/v1/settings', settingsRoutes);
 app.use('/v1/inquiries', inquiryRoutes);
 app.use('/v1/quotes', quoteRoutes);
+app.use('/v1/artists', publicArtistsRouter);
 
 // Member
 app.use('/v1/masterclasses', masterclassRoutes);
@@ -178,6 +186,7 @@ app.use('/v1/enrollments', enrollmentRoutes);
 app.use('/v1/payments', paymentRoutes);
 
 // Admin
+app.use('/v1/admin/artists', adminArtistsRouter);
 app.use('/v1/admin/dashboard', dashboardRoutes);
 app.use('/v1/admin/masterclasses', adminMasterclassRoutes);
 app.use('/v1/admin/payments', adminPaymentRoutes);

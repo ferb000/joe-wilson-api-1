@@ -1,106 +1,43 @@
 import { Request, Response } from 'express';
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { v4 as uuidv4 } from 'uuid';
-import { s3 } from '../../config/s3';
+import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
-import { AuthRequest } from '../../middleware/authenticate';
-import { ok, created, notFound, badRequest, serverError } from '../../utils/response';
-import { FileType } from '@prisma/client';
-
-function getFileType(mimeType: string): FileType {
-  if (mimeType.startsWith('image/')) return FileType.image;
-  if (mimeType.startsWith('audio/')) return FileType.audio;
-  if (mimeType.startsWith('video/')) return FileType.video;
-  if (mimeType === 'application/pdf' || mimeType === 'text/plain') return FileType.document;
-  if (mimeType.includes('zip')) return FileType.archive;
-  return FileType.document;
-}
-
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
-}
+import { ok, created, badRequest, notFound } from '../../utils/response';
+import { localStorage, mediaDTO, mimeExtensions, fileType, validSignature, storeFile, removeFile } from './media.service';
 
 export async function listMedia(req: Request, res: Response) {
-  const { q, type } = req.query;
-
-  const media = await prisma.mediaLibrary.findMany({
-    where: {
-      ...(q ? { filename: { contains: q as string, mode: 'insensitive' } } : {}),
-      ...(type ? { fileType: type as FileType } : {}),
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  // Never expose storage keys — replace with display-safe data
-  const safeMedia = media.map(({ storageKey: _sk, ...rest }) => rest);
-  return ok(res, safeMedia);
+  const query = z.object({ q: z.string().trim().max(160).optional(), type: z.enum(['image','video','audio','document','archive']).optional() }).strict().parse(req.query);
+  const media = await prisma.mediaLibrary.findMany({ where: { ...(query.q && { filename: { contains: query.q, mode: 'insensitive' as const } }), ...(query.type && { fileType: query.type }) }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] });
+  return ok(res, media.map(mediaDTO));
 }
-
-export async function uploadMedia(req: AuthRequest, res: Response) {
-  if (!req.file) return badRequest(res, 'No file provided');
-
-  if (!env.S3_BUCKET) {
-    return badRequest(res, 'File storage not configured yet. Set S3_BUCKET in your environment.');
-  }
-
-  const fileId = uuidv4();
-  const sanitized = sanitizeFilename(req.file.originalname);
-  const storageKey = `media/${fileId}/${sanitized}`;
-
+export async function uploadMedia(req: Request, res: Response) {
+  const file = req.file;
+  if (!file || !file.size) return badRequest(res, 'Choose a non-empty file to upload');
+  if (!mimeExtensions[file.mimetype] || !validSignature(file.buffer, file.mimetype)) return badRequest(res, 'The file contents do not match a supported image or video format');
+  if (file.mimetype.startsWith('image/') && file.size > 10 * 1024 * 1024) return res.status(413).json({ success: false, error: 'Images must be 10 MB or smaller' });
+  if (localStorage() && !env.MEDIA_PUBLIC_BASE_URL) return badRequest(res, 'Local file URL is not configured');
+  if (!localStorage() && !env.S3_BUCKET) return res.status(503).json({ success: false, error: 'File storage is not configured. Please contact the administrator.' });
+  const key = `${localStorage() ? 'local:' : ''}media/${randomUUID()}.${mimeExtensions[file.mimetype]}`;
+  await storeFile(key, file);
   try {
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: env.S3_BUCKET,
-        Key: storageKey,
-        Body: req.file.buffer,
-        ContentType: req.file.mimetype,
-      })
-    );
-  } catch (err) {
-    console.error('S3 upload error:', err);
-    return serverError(res, 'File upload failed');
-  }
-
-  const url = env.S3_ENDPOINT
-    ? `${env.S3_ENDPOINT}/${env.S3_BUCKET}/${storageKey}`
-    : `https://${env.S3_BUCKET}.s3.${env.S3_REGION}.amazonaws.com/${storageKey}`;
-
-  const media = await prisma.mediaLibrary.create({
-    data: {
-      filename: req.file?.originalname || 'upload',
-    
-      storageKey: url,
-    
-      mimeType: req.file?.mimetype || 'application/octet-stream',
-    
-      fileType: FileType.image,
-    
-      sizeBytes: BigInt(req.file?.size || 0),
-    
-      uploadedBy: req.user!.id,
-    },
-  });
-
-  const { storageKey: _sk, ...safeMedia } = media;
-  return created(res, safeMedia);
+    const media = await prisma.mediaLibrary.create({ data: { filename: file.originalname, storageKey: key, mimeType: file.mimetype, fileType: fileType(file.mimetype), sizeBytes: BigInt(file.size), uploadedBy: (req as any).user.id } });
+    return created(res, mediaDTO(media));
+  } catch (error) { await removeFile(key).catch(() => {}); throw error; }
 }
-
-export async function deleteMedia(req: AuthRequest, res: Response) {
-  const media = await prisma.mediaLibrary.findUnique({ where: { id: req.params.id } });
-  if (!media) return notFound(res);
-
-  if (env.S3_BUCKET) {
-    try {
-      await s3.send(
-        new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: media.storageKey })
-      );
-    } catch (err) {
-      console.error('S3 delete error:', err);
-      return serverError(res, 'Failed to delete file from storage');
-    }
-  }
-
-  await prisma.mediaLibrary.delete({ where: { id: req.params.id } });
+export async function deleteMedia(req: Request, res: Response) {
+  const id = z.string().uuid().parse(req.params.id);
+  const media = await prisma.mediaLibrary.findUnique({ where: { id } });
+  if (!media) return notFound(res, 'File not found');
+  // URLs in existing cover fields are intentionally retained. Do not delete their files.
+  const url = mediaDTO(media).url;
+  const used = await prisma.$transaction([
+    prisma.artistVideo.count({ where: { OR: [{ mediaId: id }, { customCoverUrl: url }] } }),
+    prisma.resource.count({ where: { mediaId: id } }), prisma.masterclass.count({ where: { coverImageUrl: url } }),
+    prisma.service.count({ where: { coverImageUrl: url } }), prisma.user.count({ where: { avatarUrl: url } }), prisma.testimonial.count({ where: { avatarUrl: url } }),
+  ]);
+  if (used.some(Boolean)) return res.status(409).json({ success: false, error: 'This file is in use. Remove it from its video, cover or resource before deleting.' });
+  await prisma.mediaLibrary.delete({ where: { id } });
+  await removeFile(media.storageKey);
   return ok(res, { success: true });
 }

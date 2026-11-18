@@ -1,4 +1,5 @@
 import swaggerJsdoc from 'swagger-jsdoc';
+import { artistPaths, artistSchemas } from '../modules/artists/artists.openapi';
 
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -23,6 +24,7 @@ const options: swaggerJsdoc.Options = {
         },
       },
       schemas: {
+        ...artistSchemas,
         // ── Common ──────────────────────────────────────────────────────────
         PaginationMeta: {
           type: 'object',
@@ -529,12 +531,14 @@ const options: swaggerJsdoc.Options = {
       },
     },
     paths: {
+      ...artistPaths,
       // ════════════════════════════════════════════════════════════════════════
       // AUTH
       // ════════════════════════════════════════════════════════════════════════
       '/auth/register': {
         post: {
-          tags: ['Auth'],
+          tags: [
+      { name: 'Artist portfolio', description: 'Published artist portfolio and owner-only management' },'Auth'],
           summary: 'Register a new user',
           requestBody: {
             required: true,
@@ -1353,7 +1357,7 @@ const options: swaggerJsdoc.Options = {
       // ════════════════════════════════════════════════════════════════════════
       // MEDIA
       // ════════════════════════════════════════════════════════════════════════
-      '/media': {
+      '/admin/media': {
         get: {
           tags: ['Media'],
           summary: 'List media library items (admin)',
@@ -1369,7 +1373,7 @@ const options: swaggerJsdoc.Options = {
           },
         },
       },
-      '/media/upload': {
+      '/admin/media/upload': {
         post: {
           tags: ['Media'],
           summary: 'Upload a file to the media library (admin)',
@@ -1400,7 +1404,7 @@ const options: swaggerJsdoc.Options = {
           },
         },
       },
-      '/media/{id}': {
+      '/admin/media/{id}': {
         delete: {
           tags: ['Media'],
           summary: 'Delete a media item from the library and storage (admin)',

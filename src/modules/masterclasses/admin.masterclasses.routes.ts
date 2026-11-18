@@ -1,3 +1,4 @@
+import { handle } from '../artists/artists.http';
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authenticate';
 import { requireAdmin } from '../../middleware/requireAdmin';
@@ -8,8 +9,8 @@ import { z } from 'zod';
 const masterclassSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
-  coverImageUrl: z.string().url().optional(),
-  priceCents: z.number().int().positive(),
+  coverImageUrl: z.string().url().optional().or(z.literal('')),
+  priceCents: z.number().int().min(0),
   status: z.enum(['draft', 'upcoming', 'active', 'completed']).optional(),
   startsAt: z.string(),
   endsAt: z.string(),
@@ -35,13 +36,14 @@ router.use(authenticate, requireAdmin);
 
 // Masterclasses
 router.get('/', controller.listMasterclasses);
-router.post('/', validate(masterclassSchema), controller.createMasterclass);
+router.get('/:id', handle(controller.getMasterclass));
+router.post('/', validate(z.object({ body: masterclassSchema })), controller.createMasterclass);
 router.patch('/:id', controller.updateMasterclass);
 router.delete('/:id', controller.deleteMasterclass);
 router.get('/:id/enrollments', controller.getMasterclassEnrollments);
 
 // Sessions within masterclasses
-router.post('/:id/sessions', validate(sessionSchema), controller.addSession);
+router.post('/:id/sessions', validate(z.object({ body: sessionSchema })), controller.addSession);
 router.patch('/sessions/:sessionId', controller.updateSession);
 router.delete('/sessions/:sessionId', controller.deleteSession);
 

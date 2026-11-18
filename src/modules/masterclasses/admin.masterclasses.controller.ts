@@ -57,6 +57,8 @@ export async function listMasterclasses(req: Request, res: Response) {
   const data = masterclasses.map((mc) => ({
     id: mc.id,
     title: mc.title,
+    description: mc.description,
+    coverImageUrl: mc.coverImageUrl,
     status: mc.status,
     priceCents: mc.priceCents,
     isPublished: mc.isPublished,
@@ -69,6 +71,12 @@ export async function listMasterclasses(req: Request, res: Response) {
   }));
 
   return ok(res, data);
+}
+
+export async function getMasterclass(req: Request, res: Response) {
+  const id = z.string().uuid().parse(req.params.id);
+  const item = await prisma.masterclass.findUnique({ where: { id }, include: { sessions: { orderBy: { orderIndex: 'asc' } } } });
+  return item ? ok(res, item) : notFound(res, 'Masterclass not found');
 }
 
 export async function createMasterclass(req: Request, res: Response) {

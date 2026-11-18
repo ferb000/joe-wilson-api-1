@@ -48,6 +48,8 @@ const envSchema = z
     AWS_SECRET_ACCESS_KEY: z.string().optional(),
 
     S3_BUCKET: z.string().optional(),
+    MEDIA_LOCAL_DIR: z.string().optional(),
+    MEDIA_PUBLIC_BASE_URL: z.string().url().optional(),
 
     S3_REGION: z.string().optional(),
 
@@ -74,6 +76,7 @@ const envSchema = z
     REDIS_URL: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.NODE_ENV === 'production' && data.MEDIA_LOCAL_DIR) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['MEDIA_LOCAL_DIR'], message: 'Local media storage is development-only' });
     if (data.JWT_SECRET === data.JWT_REFRESH_SECRET) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
