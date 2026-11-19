@@ -37,13 +37,13 @@ router.use(authenticate, requireAdmin);
 // Masterclasses
 router.get('/', controller.listMasterclasses);
 router.get('/:id', handle(controller.getMasterclass));
-router.post('/', validate(z.object({ body: masterclassSchema })), controller.createMasterclass);
+router.post('/', validate(masterclassSchema), controller.createMasterclass);
 router.patch('/:id', controller.updateMasterclass);
 router.delete('/:id', controller.deleteMasterclass);
 router.get('/:id/enrollments', controller.getMasterclassEnrollments);
 
 // Sessions within masterclasses
-router.post('/:id/sessions', validate(z.object({ body: sessionSchema })), controller.addSession);
+router.post('/:id/sessions', validate(sessionSchema), controller.addSession);
 router.patch('/sessions/:sessionId', controller.updateSession);
 router.delete('/sessions/:sessionId', controller.deleteSession);
 
