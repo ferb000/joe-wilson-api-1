@@ -11,11 +11,7 @@ import timeout from 'connect-timeout';
 import { randomUUID } from 'crypto';
 
 import { env } from './config/env';
-import { prisma } from './config/database';
-import { redis } from './config/redis';
-import { logger } from './config/logger';
 import { swaggerSpec } from './config/swagger';
-import { emailQueue } from './jobs/email.queue';
 
 import { errorHandler } from './middleware/errorHandler';
 import { globalLimiter } from './middleware/rateLimit';
@@ -204,63 +200,5 @@ app.use((_req, res) => {
 // ERROR HANDLER
 // ─────────────────────────────────────────────
 app.use(errorHandler);
-
-// ─────────────────────────────────────────────
-// START SERVER
-// ─────────────────────────────────────────────
-const PORT = Number(process.env.PORT) || 3000;
-
-const server = app.listen(PORT, () => {
-  logger.info(`Wilson API running on port ${PORT} [${env.NODE_ENV}]`);
-  logger.info(`Allowed origins: ${allowedOrigins.join(', ')}`);
-});
-
-// ─────────────────────────────────────────────
-// GRACEFUL SHUTDOWN
-// ─────────────────────────────────────────────
-async function shutdown(signal: string) {
-  logger.info(`${signal} received — shutting down gracefully`);
-
-  const forceExit = setTimeout(() => {
-    logger.error('Forced exit after 10s timeout');
-    process.exit(1);
-  }, 10000);
-
-  forceExit.unref();
-
-  server.close(async () => {
-    try {
-      await prisma.$disconnect();
-      logger.info('Database disconnected');
-
-      await emailQueue?.close();
-      logger.info('Email queue closed');
-
-      if (redis?.status === 'ready') {
-        await redis.quit();
-        logger.info('Redis disconnected');
-      }
-
-      logger.info('Shutdown complete');
-      process.exit(0);
-    } catch (err) {
-      logger.error(err, 'Error during shutdown');
-      process.exit(1);
-    }
-  });
-}
-
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-process.on('uncaughtException', (error) => {
-  logger.error(error, 'UNCAUGHT EXCEPTION');
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason) => {
-  logger.error(reason, 'UNHANDLED REJECTION');
-  process.exit(1);
-});
 
 export default app;
