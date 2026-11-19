@@ -4,7 +4,7 @@ This blueprint deploys the API as a free Render Node web service. It expects Pos
 
 ## 1. Create the external services
 
-- Create a PostgreSQL database with Neon (or another hosted PostgreSQL provider) and copy its direct (non-pooled) connection string into `DATABASE_URL`. Prisma migrations use PostgreSQL advisory locks, which are not supported by transaction poolers.
+- Create a PostgreSQL database with Neon (or another hosted PostgreSQL provider). Set `DATABASE_URL` to the runtime connection string and `DIRECT_URL` to the direct, non-pooled connection string. Prisma migrations use PostgreSQL advisory locks, which are not supported by transaction poolers.
 - Create a Redis database with Upstash and copy its TLS connection string (`rediss://...`) into `REDIS_URL`.
 
 These services have their own free-tier limits and policies. Keep the database and Redis in a nearby region to Render when possible.
@@ -17,7 +17,7 @@ These services have their own free-tier limits and policies. Keep the database a
    - Admin: build command `npm ci && npm run build:admin`, publish directory `apps/admin/out`.
    Set `VITE_API_BASE_URL` to a temporary placeholder during this first deploy. Add a rewrite rule `/*` → `/index.html` (Rewrite) to each site so direct React Router links work.
 3. In Render, choose **New → Blueprint**, connect the API repository, and select `render.yaml`.
-4. When prompted, enter `DATABASE_URL`, `REDIS_URL`, `FRONTEND_URLS`, and `CORS_ORIGINS`.
+4. When prompted, enter `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `FRONTEND_URLS`, and `CORS_ORIGINS`.
    - `FRONTEND_URLS` is the exact origins of both deployed sites, with no trailing slash, comma-separated (for example, `https://your-site.onrender.com,https://your-admin.onrender.com`).
    - `CORS_ORIGINS` is the browser CORS allowlist; use those same deployed origins. Do not add localhost when the developer uses the Vite proxy to reach this API.
 5. Render builds the TypeScript app and runs `prisma migrate deploy` before starting the API. Do not run development migrations against this hosted database.

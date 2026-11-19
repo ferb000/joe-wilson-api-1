@@ -52,3 +52,12 @@ export function authenticate(
     );
   }
 }
+
+export function optionalAuthenticate(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, next);
+}

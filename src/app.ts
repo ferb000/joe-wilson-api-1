@@ -233,7 +233,7 @@ async function shutdown(signal: string) {
       await prisma.$disconnect();
       logger.info('Database disconnected');
 
-      await emailQueue.close();
+      await emailQueue?.close();
       logger.info('Email queue closed');
 
       if (redis?.status === 'ready') {

@@ -5,6 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://review:review@localhost:5432/review
+      DIRECT_URL: postgresql://review:review@localhost:5432/review
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

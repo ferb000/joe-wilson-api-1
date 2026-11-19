@@ -200,6 +200,7 @@ POSTGRES_USER=mrwilson
 POSTGRES_PASSWORD=CHANGE_ME_LONG_RANDOM_DATABASE_PASSWORD
 POSTGRES_DB=mrwilson
 DATABASE_URL=postgresql://mrwilson:CHANGE_ME_LONG_RANDOM_DATABASE_PASSWORD@127.0.0.1:5432/mrwilson?schema=public
+DIRECT_URL=postgresql://mrwilson:CHANGE_ME_LONG_RANDOM_DATABASE_PASSWORD@127.0.0.1:5432/mrwilson?schema=public
 
 # Use a separate strong password from the database password.
 REDIS_PASSWORD=CHANGE_ME_DIFFERENT_LONG_RANDOM_REDIS_PASSWORD
@@ -255,6 +256,8 @@ Protect the file:
 ```bash
 chmod 600 .env
 ```
+
+`DIRECT_URL` is used by Prisma migrations. For this EC2 setup, set it to the same local PostgreSQL URL as `DATABASE_URL`.
 
 The API Dockerfile does not copy `.env` into the image; PM2 loads it on the EC2 host. Never commit it.
 
@@ -433,6 +436,7 @@ Use a unique strong password with at least 12 characters. You can run this once 
 After pushing changes to GitHub, update the server:
 
 ```bash
+set -e
 cd /var/www/joe-wilson-api && git pull --ff-only origin bobbai
 cd /var/www/joe-wilson-portfolio-main && git pull --ff-only origin main
 cd /var/www/joe-wilson-api && npm ci && npx prisma generate && npm run db:deploy && npm run build

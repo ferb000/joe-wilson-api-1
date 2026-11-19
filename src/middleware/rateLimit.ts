@@ -84,3 +84,15 @@ export const resetPasswordLimiter = rateLimit({
     message: 'Too many password reset attempts. Please try again later.',
   },
 });
+
+export const contactLimiter = rateLimit({
+  store: createRedisStore('rl:contact:'),
+  windowMs: fifteenMinutes,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many requests. Please try again later.',
+  },
+});
