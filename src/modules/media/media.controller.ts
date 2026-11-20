@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { ok, created, badRequest, notFound } from '../../utils/response';
-import { localStorage, mediaDTO, mimeExtensions, fileType, validSignature, storeFile, removeFile } from './media.service';
+import { getPaginationMeta, getPaginationParams, getSkip } from '../../utils/pagination';
+import { localStorage, mediaDTO, mediaResponse, mimeExtensions, fileType, validSignature, storeFile, removeFile } from './media.service';
 
 export async function listMedia(req: Request, res: Response) {
   const query = z.object({
@@ -14,21 +15,34 @@ export async function listMedia(req: Request, res: Response) {
     page: z.coerce.number().int().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
   }).strict().parse(req.query);
-  const media = await prisma.mediaLibrary.findMany({ where: { ...(query.q && { filename: { contains: query.q, mode: 'insensitive' as const } }), ...(query.type && { fileType: query.type }) }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] });
-  return ok(res, media.map(mediaDTO));
+  const params = getPaginationParams(req.query);
+  const where = {
+    ...(!(query.includeDeleting === true || query.includeDeleting === 'true') && { deleting: false }),
+    ...(query.q && { filename: { contains: query.q, mode: 'insensitive' as const } }),
+    ...(query.type && { fileType: query.type }),
+  };
+  const [media, total] = await Promise.all([
+    prisma.mediaLibrary.findMany({ where, skip: getSkip(params), take: params.limit, include: { transcode: true }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] }),
+    prisma.mediaLibrary.count({ where }),
+  ]);
+  return ok(res, await Promise.all(media.map(item => mediaResponse(item, true))), getPaginationMeta(total, params));
 }
 export async function uploadMedia(req: Request, res: Response) {
   const file = req.file;
   if (!file || !file.size) return badRequest(res, 'Choose a non-empty file to upload');
   if (!mimeExtensions[file.mimetype] || !validSignature(file.buffer, file.mimetype)) return badRequest(res, 'The file contents do not match a supported image or video format');
   if (file.mimetype.startsWith('image/') && file.size > 10 * 1024 * 1024) return res.status(413).json({ success: false, error: 'Images must be 10 MB or smaller' });
+  const isPublic = req.body.isPublic === 'true';
+  if (isPublic && !file.mimetype.startsWith('image/')) return badRequest(res, 'Only images can be public');
+  if (isPublic && !localStorage() && !env.S3_PUBLIC_BASE_URL) return res.status(503).json({ success: false, error: 'Public image delivery is not configured' });
   if (localStorage() && !env.MEDIA_PUBLIC_BASE_URL) return badRequest(res, 'Local file URL is not configured');
   if (!localStorage() && !env.S3_BUCKET) return res.status(503).json({ success: false, error: 'File storage is not configured. Please contact the administrator.' });
-  const key = `${localStorage() ? 'local:' : ''}media/${randomUUID()}.${mimeExtensions[file.mimetype]}`;
+  const key = `${localStorage() ? 'local:' : ''}${isPublic ? 'public' : 'media'}/${randomUUID()}.${mimeExtensions[file.mimetype]}`;
   await storeFile(key, file);
   try {
-    const media = await prisma.mediaLibrary.create({ data: { filename: file.originalname, storageKey: key, mimeType: file.mimetype, fileType: fileType(file.mimetype), sizeBytes: BigInt(file.size), uploadedBy: (req as any).user.id } });
-    return created(res, mediaDTO(media));
+    const media = await prisma.mediaLibrary.create({ data: { filename: file.originalname, storageKey: key, mimeType: file.mimetype, fileType: fileType(file.mimetype), sizeBytes: BigInt(file.size), uploadedBy: (req as any).user.id, isPublic } });
+    const withTranscode = await prisma.mediaLibrary.findUniqueOrThrow({ where: { id: media.id }, include: { transcode: true } });
+    return created(res, await mediaResponse(withTranscode, true));
   } catch (error) { await removeFile(key).catch(() => {}); throw error; }
 }
 export async function deleteMedia(req: Request, res: Response) {
