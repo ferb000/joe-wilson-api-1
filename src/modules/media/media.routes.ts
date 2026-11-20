@@ -17,5 +17,9 @@ router.post('/upload', (req, res, next) => upload.single('file')(req, res, error
   if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, error: error.code === 'LIMIT_FILE_SIZE' ? 'Files must be 50 MB or smaller' : 'Choose one file using the file picker' });
   next();
 }), handle(controller.uploadMedia, 'media library'));
+router.post('/uploads', handle(controller.startUpload, 'media upload'));
+router.post('/uploads/:id/parts', handle(controller.uploadPart, 'media upload'));
+router.post('/uploads/:id/complete', handle(controller.completeUpload, 'media upload'));
+router.delete('/uploads/:id', handle(controller.abortUpload, 'media upload'));
 router.delete('/:id', handle(controller.deleteMedia, 'media library'));
 export default router;

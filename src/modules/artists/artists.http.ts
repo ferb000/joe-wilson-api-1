@@ -3,11 +3,13 @@ import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { logger } from '../../config/logger';
 import { notFound } from '../../utils/response';
+import { HttpError } from '../../utils/httpError';
 import { id } from './artists.schema';
 
 export function handle(fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>, context = 'artist portfolio'): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve().then(() => fn(req, res, next)).catch(error => {
+      if (error instanceof HttpError) return res.status(error.status).json({ success: false, error: error.message });
       if (error instanceof ZodError) return res.status(400).json({ success: false, error: `Validation failed: ${error.issues[0]?.message ?? 'Check your input'}`, details: error.issues });
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2025') return notFound(res);

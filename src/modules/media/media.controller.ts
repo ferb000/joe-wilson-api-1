@@ -1,11 +1,139 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
+import { AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CreateMultipartUploadCommand, HeadObjectCommand, ListPartsCommand, Part, UploadPartCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { ok, created, badRequest, notFound } from '../../utils/response';
 import { getPaginationMeta, getPaginationParams, getSkip } from '../../utils/pagination';
 import { localStorage, mediaDTO, mediaResponse, mimeExtensions, fileType, validSignature, storeFile, removeFile } from './media.service';
+import { storage } from '../../config/s3';
+import { localStorageEnabled } from './local.storage';
+import { localFileUrl } from './local.files.routes';
+import { HttpError } from '../../utils/httpError';
+
+export const PART_SIZE = 10 * 1024 * 1024;
+const multipartUploadSchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  mimeType: z.string().refine(mime => Object.hasOwn(mimeExtensions, mime), 'Unsupported file type'),
+  sizeBytes: z.number().int().positive().max(env.S3_MAX_UPLOAD_BYTES),
+  isPublic: z.boolean().default(false),
+}).strict().refine(input => !input.isPublic || input.mimeType.startsWith('image/'), 'Only images can be public');
+
+function uploadKey(filename: string, isPublic: boolean) {
+  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
+  return `${isPublic ? 'public' : 'media'}/${randomUUID()}-${safeFilename}`;
+}
+
+async function pendingUpload(id: string, userId: string) {
+  const upload = await prisma.mediaUpload.findFirst({ where: { id, uploadedBy: userId } });
+  if (!upload) throw new HttpError(404, 'Upload not found');
+  if (upload.expiresAt <= new Date()) throw new HttpError(410, 'Upload expired; start it again');
+  return upload;
+}
+
+export function verifyUploadParts(parts: Part[], expectedSize: number) {
+  parts.sort((a, b) => (a.PartNumber || 0) - (b.PartNumber || 0));
+  if (parts.length !== Math.ceil(expectedSize / PART_SIZE) || parts.some((part, index) =>
+    part.PartNumber !== index + 1 || !part.ETag || part.Size !== Math.min(PART_SIZE, expectedSize - index * PART_SIZE))) {
+    throw new HttpError(400, 'Uploaded parts do not match the declared file size');
+  }
+}
+
+export async function startUpload(req: Request, res: Response) {
+  const input = multipartUploadSchema.parse(req.body);
+  if (input.isPublic && !localStorageEnabled && !env.S3_PUBLIC_BASE_URL) {
+    return res.status(503).json({ success: false, error: 'Public image delivery is not configured' });
+  }
+  if (!localStorageEnabled && !env.S3_BUCKET) {
+    return res.status(503).json({ success: false, error: 'File storage is not configured' });
+  }
+  const storageKey = uploadKey(input.filename, input.isPublic);
+  const started = await storage.send(new CreateMultipartUploadCommand({ Bucket: env.S3_BUCKET, Key: storageKey, ContentType: input.mimeType }));
+  if (!started.UploadId) throw new HttpError(502, 'Storage did not create an upload');
+  try {
+    const record = await prisma.mediaUpload.create({ data: {
+      storageKey, uploadId: started.UploadId, filename: input.filename, mimeType: input.mimeType,
+      sizeBytes: BigInt(input.sizeBytes), uploadedBy: (req as any).user.id, isPublic: input.isPublic,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    } });
+    return created(res, { id: record.id, partSize: PART_SIZE, partsCount: Math.ceil(input.sizeBytes / PART_SIZE), expiresAt: record.expiresAt });
+  } catch (error) {
+    await storage.send(new AbortMultipartUploadCommand({ Bucket: env.S3_BUCKET, Key: storageKey, UploadId: started.UploadId })).catch(() => {});
+    throw error;
+  }
+}
+
+export async function uploadPart(req: Request, res: Response) {
+  const upload = await pendingUpload(req.params.id, (req as any).user.id);
+  if (upload.status !== 'uploading') return res.status(409).json({ success: false, error: 'Upload is being finalized' });
+  const { partNumber } = z.object({ partNumber: z.number().int().min(1).max(Math.ceil(Number(upload.sizeBytes) / PART_SIZE)) }).strict().parse(req.body);
+  const command = new UploadPartCommand({ Bucket: env.S3_BUCKET, Key: upload.storageKey, UploadId: upload.uploadId, PartNumber: partNumber });
+  const url = localStorageEnabled
+    ? localFileUrl(upload.storageKey, 900, { uploadId: upload.uploadId, partNumber })
+    : await getSignedUrl(storage, command, { expiresIn: 900 });
+  return ok(res, { url, expiresIn: 900 });
+}
+
+export async function completeUpload(req: Request, res: Response) {
+  const upload = await pendingUpload(req.params.id, (req as any).user.id);
+  const reserved = await prisma.mediaUpload.updateMany({ where: { id: upload.id, OR: [
+    { status: 'uploading' },
+    { status: 'finalizing', updatedAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } },
+  ] }, data: { status: 'finalizing' } });
+  if (reserved.count !== 1) return res.status(409).json({ success: false, error: 'Upload is already being finalized' });
+
+  try {
+    let object: { ContentLength?: number; ContentType?: string } | undefined;
+    try { object = await storage.send(new HeadObjectCommand({ Bucket: env.S3_BUCKET, Key: upload.storageKey })); }
+    catch (error) {
+      const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (status !== 404 && (error as { name?: string }).name !== 'NoSuchKey') throw error;
+    }
+    if (!object) {
+      const parts: Part[] = [];
+      let marker: string | undefined;
+      do {
+        const page = await storage.send(new ListPartsCommand({ Bucket: env.S3_BUCKET, Key: upload.storageKey, UploadId: upload.uploadId, PartNumberMarker: marker }));
+        parts.push(...(page.Parts || []));
+        marker = page.IsTruncated ? String(page.NextPartNumberMarker) : undefined;
+      } while (marker !== undefined);
+      verifyUploadParts(parts, Number(upload.sizeBytes));
+      await storage.send(new CompleteMultipartUploadCommand({
+        Bucket: env.S3_BUCKET, Key: upload.storageKey, UploadId: upload.uploadId,
+        MultipartUpload: { Parts: parts.map(part => ({ PartNumber: part.PartNumber, ETag: part.ETag })) },
+      }));
+      object = await storage.send(new HeadObjectCommand({ Bucket: env.S3_BUCKET, Key: upload.storageKey }));
+    }
+    if (object.ContentLength !== Number(upload.sizeBytes) || object.ContentType !== upload.mimeType) {
+      throw new HttpError(400, 'Stored object does not match the upload details');
+    }
+    const media = await prisma.$transaction(async tx => {
+      const createdMedia = await tx.mediaLibrary.create({ data: {
+        filename: upload.filename, storageKey: upload.storageKey, mimeType: upload.mimeType,
+        fileType: fileType(upload.mimeType), sizeBytes: upload.sizeBytes, uploadedBy: upload.uploadedBy,
+        isPublic: upload.isPublic,
+        ...(upload.mimeType.startsWith('video/') && { transcode: { create: {} } }),
+      } });
+      await tx.mediaUpload.delete({ where: { id: upload.id } });
+      return tx.mediaLibrary.findUniqueOrThrow({ where: { id: createdMedia.id }, include: { transcode: true } });
+    });
+    return created(res, await mediaResponse(media, true));
+  } catch (error) {
+    await prisma.mediaUpload.updateMany({ where: { id: upload.id, status: 'finalizing' }, data: { status: 'uploading' } }).catch(() => {});
+    throw error;
+  }
+}
+
+export async function abortUpload(req: Request, res: Response) {
+  const upload = await pendingUpload(req.params.id, (req as any).user.id);
+  await storage.send(new AbortMultipartUploadCommand({ Bucket: env.S3_BUCKET, Key: upload.storageKey, UploadId: upload.uploadId })).catch(error => {
+    if ((error as { name?: string }).name !== 'NoSuchUpload') throw error;
+  });
+  await prisma.mediaUpload.delete({ where: { id: upload.id } });
+  return ok(res, { success: true });
+}
 
 export async function listMedia(req: Request, res: Response) {
   const query = z.object({

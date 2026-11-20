@@ -82,7 +82,8 @@ app.use((req, res, next) => {
     return next();
   }
 
-  return timeout(req.path === '/v1/admin/media/upload' ? '120s' : '10s')(req, res, next);
+  const isMediaUpload = req.path === '/v1/admin/media/upload' || req.path.endsWith('/complete');
+  return timeout(isMediaUpload ? '120s' : '10s')(req, res, next);
 });
 
 // Prevent execution after timeout
