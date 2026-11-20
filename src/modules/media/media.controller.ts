@@ -7,7 +7,13 @@ import { ok, created, badRequest, notFound } from '../../utils/response';
 import { localStorage, mediaDTO, mimeExtensions, fileType, validSignature, storeFile, removeFile } from './media.service';
 
 export async function listMedia(req: Request, res: Response) {
-  const query = z.object({ q: z.string().trim().max(160).optional(), type: z.enum(['image','video','audio','document','archive']).optional() }).strict().parse(req.query);
+  const query = z.object({
+    q: z.string().trim().max(160).optional(),
+    type: z.enum(['image','video','audio','document','archive']).optional(),
+    includeDeleting: z.union([z.string(), z.boolean()]).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }).strict().parse(req.query);
   const media = await prisma.mediaLibrary.findMany({ where: { ...(query.q && { filename: { contains: query.q, mode: 'insensitive' as const } }), ...(query.type && { fileType: query.type }) }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] });
   return ok(res, media.map(mediaDTO));
 }
