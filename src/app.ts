@@ -28,7 +28,9 @@ import adminPaymentRoutes from './modules/payments/admin.payments.routes';
 import inquiryRoutes from './modules/inquiries/inquiries.routes';
 import quoteRoutes from './modules/quotes/quotes.routes';
 import serviceRoutes from './modules/services/services.routes';
+import adminServiceRoutes from './modules/services/admin.services.routes';
 import eventRoutes from './modules/events/events.routes';
+import adminEventRoutes from './modules/events/admin.events.routes';
 import testimonialRoutes from './modules/testimonials/testimonials.routes';
 import settingsRoutes from './modules/settings/settings.routes';
 import mediaRoutes from './modules/media/media.routes';
@@ -183,6 +185,8 @@ app.use('/v1/payments', paymentRoutes);
 
 // Admin
 app.use('/v1/admin/artists', adminArtistsRouter);
+app.use('/v1/admin/services', adminServiceRoutes);
+app.use('/v1/admin/events', adminEventRoutes);
 app.use('/v1/admin/dashboard', dashboardRoutes);
 app.use('/v1/admin/masterclasses', adminMasterclassRoutes);
 app.use('/v1/admin/payments', adminPaymentRoutes);
